@@ -1,6 +1,8 @@
 import 'trix'
 import * as Y from 'yjs'
 import * as awarenessProtocol from 'y-protocols/awareness'
+import { WebsocketProvider } from 'y-websocket'
+import { IndexeddbPersistence } from 'y-indexeddb'
 import { TrixBinding } from '../src/y-trix.js'
 
 const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4']
@@ -76,4 +78,28 @@ window.ytDemo.addPeer = async () => {
   return p.name
 }
 window.ytDemo.syncAll = syncAll
-window.ytDemo.ready = main().then(() => true)
+
+// ---- one peer per page, through the real providers ------------------------
+// ?mode=yws&room=r&peer=0..4 syncs through y-websocket (server on &wsport,
+// default 5185). &persist also stores the doc with y-indexeddb, and &nows
+// leaves the network out. window.ytDemo.net.setOnline(false) disconnects.
+async function yWebsocket () {
+  document.querySelector('.controls').style.display = 'none'
+  const n = Number(params.get('peer') || 0) % NAMES.length
+  const room = params.get('room') || 'default'
+  const p = await createPeer(NAMES[n], COLORS[n])
+  const net = { provider: null, persistence: null }
+  if (params.has('persist')) {
+    net.persistence = new IndexeddbPersistence('y-trix-' + room, p.doc)
+    await net.persistence.whenSynced
+  }
+  if (!params.has('nows')) {
+    // No BroadcastChannel shortcut between tabs: everything goes through the server.
+    net.provider = new WebsocketProvider(`ws://${location.hostname}:${params.get('wsport') || 5185}`, room, p.doc, { awareness: p.awareness, disableBc: true })
+    await new Promise((resolve) => net.provider.synced ? resolve() : net.provider.once('sync', resolve))
+  }
+  net.setOnline = (on) => on ? net.provider.connect() : net.provider.disconnect()
+  window.ytDemo.net = net
+}
+
+window.ytDemo.ready = (params.get('mode') === 'yws' ? yWebsocket() : main()).then(() => true)

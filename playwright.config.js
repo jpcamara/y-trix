@@ -18,5 +18,10 @@ export default defineConfig({
   fullyParallel: true,
   use: { baseURL: 'http://localhost:5175' },
   projects: browsers.map((name) => ({ name, use: use(name) })),
-  webServer: { command: 'node demo/server.js', port: 5175, reuseExistingServer: true }
+  webServer: [
+    { command: 'node demo/server.js', port: 5175, reuseExistingServer: true },
+    // The y-websocket 2 server with LevelDB persistence, for
+    // tests/provider.spec.js. (@y/websocket-server 0.1.5 fails on every update.)
+    { command: 'node node_modules/y-websocket-server/bin/server.cjs', env: { PORT: '5185', YPERSISTENCE: join(tmpdir(), 'y-trix-test-leveldb') }, port: 5185, reuseExistingServer: true }
+  ]
 })

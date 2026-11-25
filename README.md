@@ -78,6 +78,18 @@ Tests run in Chromium, WebKit and Firefox; `BROWSERS=chromium,webkit` picks
 engines. On macOS the config starts Firefox with a stand-in home folder,
 because macOS 27 denies it its usual app-data folder.
 
+`tests/provider.spec.js` runs the binding through the real providers, one
+editor per browser context: `y-websocket` against the y-websocket 2 server
+with LevelDB persistence (two browsers, offline edits and reconnect, a late
+joiner after everyone left), and `y-indexeddb` (reload). The demo page for
+that is `?mode=yws&room=r&peer=0` (`&persist` adds y-indexeddb); start the
+server with `PORT=5185 node node_modules/y-websocket-server/bin/server.cjs`.
+
+`node demo/swarm.mjs` (see its header) runs four separate browsers, mixing
+Chromium, WebKit and Firefox, that edit one document at random through
+y-websocket with offline spells and undo, then checks that all of them and
+a late joiner hold the same document.
+
 Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 (`FUZZ_NO_UNDO=1` drops undo from the op mix).
 
