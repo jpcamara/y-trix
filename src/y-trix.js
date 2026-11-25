@@ -217,6 +217,26 @@ export class TrixBinding {
     }
     element.addEventListener('input', this.onInput)
 
+    // While an input method is composing (Japanese, Chinese, Korean, and
+    // most typing on Android), the browser owns the DOM around the caret and
+    // any render by Trix ends the composition and commits the half-typed
+    // text. So remote changes are held back until the composition is over.
+    // See hold() and release().
+    this.held = false
+    this.composing = false
+    this.shadow = null
+    this.shadowText = null
+    this.onCompositionStart = () => { this.composing = true; this.hold() }
+    this.onCompositionEnd = () => {
+      this.composing = false
+      // after Trix (and Safari's late insertFromComposition) have finished
+      setTimeout(() => { if (!this.composing) this.release() }, 0)
+    }
+    this.onBlur = () => { if (!this.composing) this.release() }
+    element.addEventListener('compositionstart', this.onCompositionStart)
+    element.addEventListener('compositionend', this.onCompositionEnd)
+    element.addEventListener('blur', this.onBlur)
+
     this.undoManager = new Y.UndoManager(ytext, {
       trackedOrigins: new Set([this]),
       captureTimeout: opts.captureTimeout ?? 500
@@ -234,6 +254,7 @@ export class TrixBinding {
 
     this.onYChange = (event, tr) => {
       if (tr.origin === this) return
+      if (this.held) return // shown when the composition ends
       try {
         this.applyRemote(event)
       } catch (e) {
@@ -276,10 +297,10 @@ export class TrixBinding {
     const prev = this.lastDoc
     this.lastDoc = next
     const b = next.getBlocks()
-    if (this.ytext.length === 0) {
+    if (this.wtext.length === 0) {
       // Y holds nothing yet (an empty Trix document has one empty block).
       if (next.isEmpty()) return
-      this.doc.transact(() => this.applyRuns(0, [], trixRuns(b), hint), this)
+      this.wdoc.transact(() => this.applyRuns(0, [], trixRuns(b), hint), this)
       return
     }
     if (prev === next) return
@@ -292,14 +313,14 @@ export class TrixBinding {
     while (s < min - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++
     const aRuns = trixRuns(a.slice(p, a.length - s))
     const bRuns = trixRuns(b.slice(p, b.length - s))
-    this.doc.transact(() => this.applyRuns(base, aRuns, bRuns, hint === undefined ? undefined : hint - base), this)
+    this.wdoc.transact(() => this.applyRuns(base, aRuns, bRuns, hint === undefined ? undefined : hint - base), this)
   }
 
   /**
    * Change the Y text at [base, base + |aRuns|), which holds aRuns, into bRuns.
    */
   applyRuns (base, aRuns, bRuns, cursor) {
-    const ytext = this.ytext
+    const ytext = this.wtext
     const aStr = runsString(aRuns)
     const bStr = runsString(bRuns)
     const aChars = charIndex(aRuns)
@@ -356,7 +377,7 @@ export class TrixBinding {
       if (run.embed) {
         const embed = { attachment: { ...run.embed.attachment } }
         if (run.attachment) this.attachments.set(embed, run.attachment)
-        this.ytext.insertEmbed(at, embed, { ...run.attrs })
+        this.wtext.insertEmbed(at, embed, { ...run.attrs })
         at++; i++
         continue
       }
@@ -366,7 +387,7 @@ export class TrixBinding {
       let start = i
       while (start > 0 && bChars[start - 1] === run) start--
       const str = run.str.slice(i - start, j - start)
-      this.ytext.insert(at, str, { ...run.attrs })
+      this.wtext.insert(at, str, { ...run.attrs })
       at += str.length
       i = j
     }
@@ -374,6 +395,7 @@ export class TrixBinding {
 
   syncAttachment (attachment) {
     if (!attachment) return
+    this.release()
     const document = this.composition.document
     if (document !== this.lastDoc) this.flushLocal()
     let range
@@ -390,6 +412,63 @@ export class TrixBinding {
       this.ytext.delete(pos, 1)
       this.ytext.insertEmbed(pos, embed, piece ? piece.getAttributes() : op.attrs)
     }, this)
+  }
+
+  // ---- holding remote changes during a composition --------------------------
+
+  /** Where local changes are written: the shadow while holding, else Y. */
+  get wtext () { return this.held ? this.shadowText : this.ytext }
+  get wdoc () { return this.held ? this.shadow : this.doc }
+
+  /**
+   * A second Y.Doc that always holds exactly what the editor shows. Outside a
+   * composition it follows the real doc update by update. During one it
+   * stops following, so the editor and the shadow behave like a peer that is
+   * offline for a moment: local changes are written to the shadow, in the
+   * editor's own positions, and sent on to the real doc, where Yjs merges
+   * them with whatever arrived meanwhile.
+   */
+  ensureShadow () {
+    if (this.shadow) return
+    this.shadow = new Y.Doc({ gc: this.doc.gc })
+    Y.applyUpdate(this.shadow, Y.encodeStateAsUpdate(this.doc), 'sync')
+    const item = /** @type {any} */ (this.ytext)._item
+    this.shadowText = item
+      ? /** @type {any} */ (Y.getItem(/** @type {any} */ (this.shadow).store, item.id)).content.type
+      : this.shadow.getText(Y.findRootTypeKey(this.ytext))
+    this.onDocUpdate = (update) => { if (!this.held) Y.applyUpdate(this.shadow, update, 'sync') }
+    this.doc.on('update', this.onDocUpdate)
+    this.shadow.on('update', (update, origin) => { if (origin === this) Y.applyUpdate(this.doc, update, this) })
+  }
+
+  hold () {
+    if (this.held) return
+    if (this.composition.document !== this.lastDoc) this.flushLocal()
+    try { this.ensureShadow() } catch (e) { console.error('y-trix: cannot hold remote changes', e); return }
+    this.held = true
+  }
+
+  /** Show what arrived while holding. */
+  release () {
+    if (!this.held) return
+    if (this.composition.document !== this.lastDoc) this.flushLocal()
+    this.held = false
+    let event = null
+    const observe = (e) => { event = e }
+    this.shadowText.observe(observe)
+    try {
+      Y.applyUpdate(this.shadow, Y.encodeStateAsUpdate(this.doc, Y.encodeStateVector(this.shadow)), 'sync')
+    } finally {
+      this.shadowText.unobserve(observe)
+    }
+    if (!event) return
+    try {
+      // the event's delta is in the shadow's positions, which are the editor's
+      this.applyRemote(event)
+    } catch (e) {
+      console.error('y-trix: applying held remote changes failed', e)
+      try { this.renderAll() } catch (e2) { console.error('y-trix: redraw failed', e2) }
+    }
   }
 
   // ---- remote Yjs -> Trix ---------------------------------------------------
@@ -518,6 +597,11 @@ export class TrixBinding {
   }
 
   renderAll () {
+    if (this.held) {
+      // everything is about to be shown
+      this.held = false
+      Y.applyUpdate(this.shadow, Y.encodeStateAsUpdate(this.doc, Y.encodeStateVector(this.shadow)), 'sync')
+    }
     this.normalizeNewlines()
     const blocks = this.runsToBlocks(deltaRuns(this.ytext.toDelta()))
     this.setDocumentRemote(new this.T.Document(blocks))
@@ -673,6 +757,7 @@ export class TrixBinding {
   }
 
   runUndo (fn) {
+    this.release()
     if (this.composition.document !== this.lastDoc) this.flushLocal()
     try {
       fn()
@@ -700,6 +785,7 @@ export class TrixBinding {
 
     this.onSelectionChange = () => {
       if (this.applyingRemote) return
+      if (this.held) return // positions are the shadow's until the composition ends
       const cur = this.awareness.getLocalState()
       if (!cur) return
       const sel = this.isFocused() ? this.selectionToRelative() : null
@@ -775,6 +861,11 @@ export class TrixBinding {
   // ---- teardown -------------------------------------------------------------
 
   destroy () {
+    this.release()
+    this.element.removeEventListener('compositionstart', this.onCompositionStart)
+    this.element.removeEventListener('compositionend', this.onCompositionEnd)
+    this.element.removeEventListener('blur', this.onBlur)
+    if (this.shadow) { this.doc.off('update', this.onDocUpdate); this.shadow.destroy() }
     this.ytext.unobserve(this.onYChange)
     this.composition.setDocument = this.origSetDocument
     this.element.removeEventListener('trix-attachment-edit', this.onAttachmentEdit)

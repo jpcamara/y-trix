@@ -58,6 +58,13 @@ concurrent edits. Changing a block's attributes formats one character.
   arrives before that frame lands in the wrong place (plain Trix does this
   too; it renders at once only on iOS). The binding makes Trix render as soon
   as the browser has finished the Enter.
+- Input methods: while a composition is in progress (Japanese, Chinese,
+  Korean, most Android typing) any render by Trix would end it and commit
+  the half-typed text. The binding keeps a second `Y.Doc` that holds exactly
+  what the editor shows. During a composition that shadow stops following
+  the real doc, local changes are written to it and passed on, and remote
+  changes are shown when the composition ends. The shadow is created at the
+  first composition, so it costs nothing until an input method is used.
 - Remote carets and selections are drawn in an overlay appended to
   `document.body`.
 - Attachments keep their Trix `Attachment` object across remote rebuilds.
