@@ -1,6 +1,6 @@
 // Property test for simpleDiff: always correct, never larger than the unhinted diff,
 // and an insertion ending at the caret is placed at the caret. Run: node tests/diff.unit.mjs
-import { simpleDiff, textDiff } from '../src/text-diff.js'
+import { simpleDiff, textDiff, seqDiff } from '../src/text-diff.js'
 let s = 3
 const rand = (n) => { s = (s * 16807) % 2147483647; return s % n }
 const str = (n) => Array.from({ length: n }, () => 'ab'[rand(2)]).join('')
@@ -35,6 +35,28 @@ for (let i = 0; i < 200000; i++) {
 }
 console.log('surrogate pair failures:', split)
 bad += split
+
+// seqDiff: applying its edits gives b, and it is minimal enough that two far
+// apart edits in a long text stay two small edits.
+let seq = 0
+for (let i = 0; i < 20000; i++) {
+  const a = str(rand(30)); const b = rand(3) === 0 ? str(rand(30)) : a.slice(0, rand(a.length + 1)) + str(rand(3)) + a.slice(rand(a.length + 1))
+  const ops = seqDiff(a, b, 1000)
+  let out = a
+  for (const op of ops.slice().reverse()) out = out.slice(0, op.index) + b.slice(op.at, op.at + op.insert) + out.slice(op.index + op.remove)
+  if (out !== b) { seq++; if (seq < 4) console.log('seqDiff wrong', JSON.stringify({ a, b, ops })) }
+}
+{
+  const long = Array.from({ length: 3000 }, (_, i) => 'word' + (i % 97)).join(' ')
+  const edited = long.slice(0, 100) + 'X' + long.slice(100, 9000) + 'YY' + long.slice(9003)
+  const ops = textDiff(long, edited)
+  const changed = ops.reduce((n, op) => n + op.remove + op.insert.length, 0)
+  let out = long
+  for (const op of ops.slice().reverse()) out = out.slice(0, op.index) + op.insert + out.slice(op.index + op.remove)
+  if (out !== edited || changed > 10) { seq++; console.log('far apart edits were not kept small', ops.length, changed) }
+}
+console.log('seqDiff failures:', seq)
+bad += seq
 console.log('simpleDiff property failures:', bad)
 if (bad) process.exit(1)
 

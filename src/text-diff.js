@@ -51,6 +51,63 @@ export const simpleDiff = (a, b, cursor) => {
 }
 
 /**
+ * Myers' diff of two sequences (strings or arrays, compared with ===).
+ * Returns the edits in ascending order as { index, remove, at, insert }:
+ * remove `remove` items of `a` at `index` and put `insert` items of `b`
+ * starting at `at` there. Returns null if more than `maxD` edits are needed.
+ * @param {ArrayLike<any>} a
+ * @param {ArrayLike<any>} b
+ * @param {number} maxD
+ */
+export const seqDiff = (a, b, maxD) => {
+  const n = a.length
+  const m = b.length
+  const max = Math.min(maxD, n + m)
+  const off = max + 1
+  const v = new Int32Array(2 * max + 3)
+  const trace = []
+  let found = -1
+  for (let d = 0; d <= max && found < 0; d++) {
+    trace.push(v.slice(off - d - 1, off + d + 2))
+    for (let k = -d; k <= d; k += 2) {
+      let x = (k === -d || (k !== d && v[off + k - 1] < v[off + k + 1])) ? v[off + k + 1] : v[off + k - 1] + 1
+      let y = x - k
+      while (x < n && y < m && a[x] === b[y]) { x++; y++ }
+      v[off + k] = x
+      if (x >= n && y >= m) { found = d; break }
+    }
+  }
+  if (found < 0) return null
+  // walk back from the end, collecting single edits
+  const edits = [] // [aIndex, bIndex, isInsert]
+  let x = n
+  let y = m
+  for (let d = found; d > 0; d--) {
+    const row = trace[d] // v before round d, for k in [-d-1, d+1]
+    const at = (k) => row[k + d + 1]
+    const k = x - y
+    const prevK = (k === -d || (k !== d && at(k - 1) < at(k + 1))) ? k + 1 : k - 1
+    const prevX = at(prevK)
+    const prevY = prevX - prevK
+    while (x > prevX && y > prevY) { x--; y-- }
+    if (x === prevX) edits.push([x, y - 1, true]); else edits.push([x - 1, y, false])
+    x = prevX
+    y = prevY
+  }
+  edits.reverse()
+  const ops = []
+  for (const [ai, bi, isInsert] of edits) {
+    const last = ops[ops.length - 1]
+    if (last && last.index + last.remove === ai && last.at + last.insert === bi) {
+      if (isInsert) last.insert++; else last.remove++
+    } else {
+      ops.push(isInsert ? { index: ai, remove: 0, at: bi, insert: 1 } : { index: ai, remove: 1, at: bi, insert: 0 })
+    }
+  }
+  return ops
+}
+
+/**
  * Diff as a list of non-overlapping edits in ascending order. Starts from
  * simpleDiff and refines a small changed region with an LCS diff, so a
  * browser rewriting " " to "\u00a0" next to the typed character does not
@@ -61,8 +118,16 @@ export const textDiff = (a, b, cursor) => {
   const d = simpleDiff(a, b, cursor)
   const x = a.slice(d.index, d.index + d.remove)
   const y = d.insert
-  if (x.length === 0 || y.length === 0 || x.length * y.length > 4096) {
+  if (x.length === 0 || y.length === 0) {
     return d.remove === 0 && d.insert.length === 0 ? [] : [d]
+  }
+  if (x.length * y.length > 4096) {
+    // Too big for the table below. Two edits far apart must still not turn
+    // into deleting and re-inserting everything between them: someone else
+    // doing the same at that moment would leave that text there twice.
+    const far = seqDiff(x, y, 1500)
+    if (far === null) return [d]
+    return far.map((op) => wholeChars(a, { index: d.index + op.index, remove: op.remove, insert: y.slice(op.at, op.at + op.insert) }))
   }
   const w = y.length + 1
   const lcs = new Uint16Array((x.length + 1) * w)
