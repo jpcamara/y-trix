@@ -90,9 +90,10 @@ Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
   block break as noise.
 - A file attachment is shared before it is uploaded, without its file. Other
   peers see it once the app's upload handler sets `url`.
-- Yjs undo has two open bugs, yjs/yjs#823 (peers can diverge after undo)
-  and yjs/yjs#809 (undo can throw). The binding catches an exception from
-  undo or redo and redraws the editor from Y, so the editor never disagrees
-  with its own Y doc. Creating the `Y.Doc` with `{ gc: false }` avoids the
-  exception, at the cost of a larger doc.
+- Yjs undo has two open bugs with nested types, yjs/yjs#823 (peers can
+  diverge after undo) and yjs/yjs#809 (undo can throw). A single flat
+  `Y.Text` does not seem to reach them: `node notes/yjs-undo-text.mjs` fuzzes
+  this data model in plain Yjs with undo and gets 0 divergences and 0
+  exceptions in 50,000 runs. The binding still catches an exception from
+  undo or redo and redraws the editor from Y.
 - Tested with Trix 2.1.19 in Chromium, WebKit and Firefox.
