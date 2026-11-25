@@ -36,7 +36,7 @@ test('trix: hostile and malformed content from a peer does not run and does not 
     document.querySelectorAll('trix-editor *').forEach((n) => { try { n.click() } catch (e) {} })
     await new Promise((resolve) => setTimeout(resolve, 300))
     const risky = (el) => Array.from(el.querySelectorAll('*')).flatMap((n) => Array.from(n.attributes).filter((x) => /^on/i.test(x.name) || (/script:|^data:text/i.test(x.value.replace(/\s/g, '')) && !/^data-trix-/.test(x.name))).map((x) => `${n.nodeName} ${x.name}=${x.value.slice(0, 80)}`))
-    return { threw, pwned: window.pwned, risky: peers.map((p) => risky(p.element)), scripts: document.querySelectorAll('trix-editor script').length, lengths: peers.map((p) => p.doc.getText('trix').length - p.editor.getDocument().getLength()) }
+    return { threw, pwned: window.pwned, risky: peers.map((p) => risky(p.element)), scripts: document.querySelectorAll('trix-editor script').length, lengths: peers.map((p) => p.doc.getText('trix').length + (p.binding.missingBreak ? 1 : 0) - p.editor.getDocument().getLength()) }
   })
   expect(res.threw).toEqual([])
   expect(res.pwned).toEqual([])
@@ -100,4 +100,31 @@ test('trix: hostile awareness state from a peer does not break or restyle the ed
   expect(res.drawn).toBe(1)
   expect(res.pwned).toBeUndefined()
   expect(errors).toEqual([])
+})
+
+test('trix: several editors repairing the same foreign text do not each add to it', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => window.ytDemo.addPeer())
+  await page.evaluate(() => window.ytDemo.addPeer())
+  await page.fill('#delay', '30')
+  // another client writes "\r\n", a bare "\r", and text after the final block break
+  await page.evaluate(() => {
+    const { Y, peers } = window.ytDemo
+    const d = new Y.Doc()
+    Y.applyUpdate(d, Y.encodeStateAsUpdate(peers[0].doc))
+    const t = d.getText('trix')
+    t.insert(t.length, 'tail')
+    t.insert(5, 'a\r\nb\rc')
+    const update = Y.encodeStateAsUpdate(d, Y.encodeStateVector(peers[0].doc))
+    for (const p of peers) setTimeout(() => Y.applyUpdate(p.doc, update, 'remote'), Math.random() * 20)
+  })
+  await page.waitForTimeout(600)
+  expect(await converge(page, 4)).toBe('Helloa\nb\nc world. Edit me in either editor.\nSecond paragraph.\ntail\n')
+  // nothing was added to Y: one "\r" deleted, and the final break still missing
+  expect(await page.evaluate(() => window.ytDemo.peers.map((p) => p.doc.getText('trix').toString()))).toEqual(new Array(4).fill('Helloa\nb\rc world. Edit me in either editor.\nSecond paragraph.\ntail'))
+  // the first editor to make a change writes the break, once
+  await caret(page, 2, 0)
+  await page.keyboard.type('X')
+  expect(await converge(page, 4)).toBe('XHelloa\nb\nc world. Edit me in either editor.\nSecond paragraph.\ntail\n')
+  expect(await page.evaluate(() => window.ytDemo.peers[0].doc.getText('trix').toString())).toBe('XHelloa\nb\rc world. Edit me in either editor.\nSecond paragraph.\ntail\n')
 })

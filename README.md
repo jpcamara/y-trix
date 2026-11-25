@@ -81,7 +81,7 @@ binding treats it as untrusted. Before it builds a Trix document from Y it
 keeps only the text and block attributes Trix is configured for, drops
 `javascript:` and other script URLs from links and attachments, checks the
 types of attachment attributes, shows an embed that is not an attachment as
-`\ufffd`, and rewrites `"\r"` (which Trix would silently change). A failure
+`\ufffd`, and deletes the `"\r"` of a `"\r\n"` (Trix would drop it and its positions would no longer match Y). A failure
 while applying a remote change is logged and the editor is redrawn from Y.
 
 The HTML in a content attachment is sanitized by Trix itself, which older

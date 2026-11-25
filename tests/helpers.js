@@ -62,7 +62,7 @@ export const consistent = (page) => page.evaluate(() => window.ytDemo.peers.map(
   const b = p.binding
   const fromY = new window.Trix.Document(b.runsToBlocks(p.doc.getText('trix').toDelta().map((op) =>
     typeof op.insert === 'string' ? { str: op.insert, attrs: op.attributes || {} } : { embed: op.insert, attrs: op.attributes || {} })))
-  return window.ytNorm(fromY) === window.ytNorm(p.editor.getDocument()) && p.doc.getText('trix').length === p.editor.getDocument().getLength()
+  return window.ytNorm(fromY) === window.ytNorm(p.editor.getDocument()) && p.doc.getText('trix').length + (b.missingBreak ? 1 : 0) === p.editor.getDocument().getLength()
 }))
 
 /** Each peer's DOM is what Trix renders for its document (nothing stale on screen). */

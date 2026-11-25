@@ -229,6 +229,7 @@ export class TrixBinding {
     // any render by Trix ends the composition and commits the half-typed
     // text. So remote changes are held back until the composition is over.
     // See hold() and release().
+    this.missingBreak = false
     this.destroyed = false
     this.held = false
     this.composing = false
@@ -304,6 +305,12 @@ export class TrixBinding {
     const next = this.composition.document
     const prev = this.lastDoc
     this.lastDoc = next
+    if (this.missingBreak) {
+      // The editor's final break is not in Y yet (see noteTrailingBreak).
+      this.missingBreak = false
+      const text = this.wtext
+      this.wdoc.transact(() => text.insert(text.length, '\n', { blockBreak: true }), this)
+    }
     const b = next.getBlocks()
     if (this.wtext.length === 0) {
       // Y holds nothing yet (an empty Trix document has one empty block).
@@ -528,7 +535,7 @@ export class TrixBinding {
       const plain = this.cleanTextAttrs(r.attrs)
       if (!r.attrs.blockBreak) { addText(r.str, plain); continue }
       for (const ch of r.str) {
-        if (ch === '\n') { flushText(); close(r.attrs) } else addText(ch, plain)
+        if (ch === '\n' || ch === '\r') { flushText(); close(r.attrs) } else addText(ch, plain)
       }
     }
     flushText()
@@ -575,13 +582,15 @@ export class TrixBinding {
   }
 
   /**
-   * Trix turns "\r\n" and "\r" into "\n" in every string it stores, which
-   * would leave its document shorter than the Y.Text. Trix never writes a
-   * "\r" itself, so one can only come from another client: rewrite it in Y.
+   * Trix turns "\r\n" into "\n" in every string it stores, which would leave
+   * its document shorter than the Y.Text. Trix never writes a "\r" itself,
+   * so one can only come from another client: delete the "\r" of each pair
+   * in Y. Only deleting keeps this safe when every editor does it at once.
+   * (A "\r" on its own becomes "\n" in Trix, the same length, and stays.)
    * @return {boolean} whether Y changed
    */
   normalizeNewlines () {
-    const fixes = [] // [index, followedByNewline, attributes]
+    const fixes = []
     let pos = 0
     const delta = this.ytext.toDelta()
     delta.forEach((op, i) => {
@@ -589,17 +598,13 @@ export class TrixBinding {
       for (let k = 0; k < op.insert.length; k++) {
         if (op.insert[k] !== '\r') continue
         const next = k + 1 < op.insert.length ? op.insert[k + 1] : (delta[i + 1] && typeof delta[i + 1].insert === 'string' ? delta[i + 1].insert[0] : '')
-        fixes.push([pos + k, next === '\n', op.attributes || {}])
+        if (next === '\n') fixes.push(pos + k)
       }
       pos += op.insert.length
     })
     if (fixes.length === 0) return false
     this.doc.transact(() => {
-      for (let i = fixes.length - 1; i >= 0; i--) {
-        const [index, crlf, attrs] = fixes[i]
-        this.ytext.delete(index, 1)
-        if (!crlf) this.ytext.insert(index, '\n', attrs)
-      }
+      for (let i = fixes.length - 1; i >= 0; i--) this.ytext.delete(fixes[i], 1)
     }, this)
     return true
   }
@@ -613,7 +618,7 @@ export class TrixBinding {
     this.normalizeNewlines()
     const blocks = this.runsToBlocks(deltaRuns(this.ytext.toDelta()))
     this.setDocumentRemote(new this.T.Document(blocks))
-    this.repairTrailingBreak()
+    this.noteTrailingBreak()
   }
 
   applyRemote (event) {
@@ -652,7 +657,7 @@ export class TrixBinding {
     const range = this.isFocused() ? this.safeSelectedRange() : null
     let selAfter = range ? range.map((i) => mapIndex(event.delta, i)) : null
     let doc
-    if (oldLen !== old.getLength() || blocks.length === 0) {
+    if (oldLen + (this.missingBreak ? 1 : 0) !== old.getLength() || blocks.length === 0) {
       // Y and the editor were not aligned (the first sync into an empty
       // editor): rebuild everything.
       doc = new this.T.Document(this.runsToBlocks(deltaRuns(this.ytext.toDelta())))
@@ -673,7 +678,7 @@ export class TrixBinding {
       doc = new this.T.Document(blocks.slice(0, bi).concat(rebuilt, blocks.slice(bj + 1)))
     }
     this.setDocumentRemote(doc, selAfter)
-    this.repairTrailingBreak()
+    this.noteTrailingBreak()
     this.renderCursors()
   }
 
@@ -715,16 +720,17 @@ export class TrixBinding {
   }
 
   /**
-   * Concurrent edits can leave text after the final block break. Close it with
-   * a break so Y and Trix keep the same length.
+   * Concurrent edits (or another client) can leave text after the final block
+   * break. Trix closes its last block with a break of its own, so its
+   * document is then one longer than the Y.Text. That break is not written
+   * here: every editor would add one. It is noted, and written by
+   * flushLocal() when this editor next makes a change.
    */
-  repairTrailingBreak () {
+  noteTrailingBreak () {
     const n = this.ytext.length
-    if (n === 0) return
+    if (n === 0) { this.missingBreak = false; return }
     const last = sliceRuns(deltaRuns(this.ytext.toDelta()), n - 1, n)[0]
-    if (last && !last.embed && last.str === '\n' && last.attrs.blockBreak) return
-    this.doc.transact(() => this.ytext.insert(n, '\n', { blockBreak: true }), this)
-    this.lastDoc = this.composition.document
+    this.missingBreak = !(last && !last.embed && (last.str === '\n' || last.str === '\r') && last.attrs.blockBreak)
   }
 
   // ---- selection <-> relative positions -------------------------------------
