@@ -153,6 +153,13 @@ const cleanAttachment = (embed) => {
   return out
 }
 
+// Awareness state comes from peers too. The colour goes into a style
+// declaration, so anything but a plain colour could add declarations of its
+// own (a caret box that covers the page).
+const SAFE_COLOR = /^(#[0-9a-f]{3,8}|[a-z]{1,24}|(rgb|hsl)a?\([\d\s.,%/]{1,40}\))$/i
+const cursorColor = (user) => (user && typeof user.color === 'string' && SAFE_COLOR.test(user.color) ? user.color : '#ffa500')
+const cursorName = (user, clientID) => (user && typeof user.name === 'string' && user.name.length > 0 ? user.name.slice(0, 60) : String(clientID))
+
 export class TrixBinding {
   /**
    * @param {Y.Text} ytext
@@ -222,6 +229,7 @@ export class TrixBinding {
     // any render by Trix ends the composition and commits the half-typed
     // text. So remote changes are held back until the composition is over.
     // See hold() and release().
+    this.destroyed = false
     this.held = false
     this.composing = false
     this.shadow = null
@@ -253,7 +261,7 @@ export class TrixBinding {
     this.patchUndo()
 
     this.onYChange = (event, tr) => {
-      if (tr.origin === this) return
+      if (tr.origin === this || this.destroyed) return
       if (this.held) return // shown when the composition ends
       try {
         this.applyRemote(event)
@@ -802,9 +810,19 @@ export class TrixBinding {
   }
 
   renderCursors () {
-    if (!this.overlay) return
+    if (!this.overlay || this.destroyed) return
+    try {
+      this.drawCursors()
+    } catch (e) {
+      // a peer's awareness state must not be able to break this editor
+      console.error('y-trix: drawing remote carets failed', e)
+    }
+  }
+
+  drawCursors () {
     const doc = this.overlay.ownerDocument
     const win = doc.defaultView
+    if (!win) return
     const sm = this.controller && this.controller.selectionManager
     this.overlay.textContent = ''
     const document = this.composition.document
@@ -815,9 +833,9 @@ export class TrixBinding {
       } catch (err) { return null }
     }
     this.awareness.getStates().forEach((state, clientID) => {
-      if (clientID === this.awareness.clientID || !state.cursor) return
-      const user = state.user || {}
-      const color = user.color || '#ffa500'
+      if (clientID === this.awareness.clientID || !state || typeof state !== 'object' || !state.cursor || typeof state.cursor !== 'object') return
+      const user = state.user
+      const color = cursorColor(user)
       let a, h
       try {
         a = this.relativeToIndex(Y.createRelativePositionFromJSON(state.cursor.anchor))
@@ -851,8 +869,8 @@ export class TrixBinding {
       caret.setAttribute('data-y-caret', String(clientID))
       caret.style.cssText = `position:absolute;left:${rect.left + sx}px;top:${rect.top + sy}px;width:2px;height:${rect.height || 16}px;background:${color}`
       const label = doc.createElement('div')
-      label.textContent = user.name || String(clientID)
-      label.style.cssText = `position:absolute;left:0;top:-14px;font:10px sans-serif;color:#fff;background:${color};padding:0 3px;white-space:nowrap;border-radius:2px`
+      label.textContent = cursorName(user, clientID)
+      label.style.cssText = `position:absolute;left:0;top:-14px;font:10px sans-serif;color:#fff;background:${color};padding:0 3px;white-space:nowrap;border-radius:2px;max-width:160px;overflow:hidden;text-overflow:ellipsis`
       caret.appendChild(label)
       this.overlay.appendChild(caret)
     })
@@ -861,7 +879,9 @@ export class TrixBinding {
   // ---- teardown -------------------------------------------------------------
 
   destroy () {
+    if (this.destroyed) return
     this.release()
+    this.destroyed = true
     this.element.removeEventListener('compositionstart', this.onCompositionStart)
     this.element.removeEventListener('compositionend', this.onCompositionEnd)
     this.element.removeEventListener('blur', this.onBlur)
@@ -880,7 +900,7 @@ export class TrixBinding {
       this.awareness.off('change', this.onRender)
       doc.defaultView.removeEventListener('resize', this.onRender)
       doc.removeEventListener('scroll', this.onRender, true)
-      this.awareness.setLocalStateField('cursor', null)
+      if (this.awareness.getLocalState() !== null) this.awareness.setLocalStateField('cursor', null)
       this.overlay.remove()
     }
   }

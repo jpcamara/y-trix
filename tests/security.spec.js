@@ -55,3 +55,49 @@ test('trix: hostile and malformed content from a peer does not run and does not 
   expect(out).toContain('B too. ')
   expect(errors).toEqual([])
 })
+
+test('trix: hostile awareness state from a peer does not break or restyle the editor', async ({ page }) => {
+  const errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+  await open(page)
+  const res = await page.evaluate(async () => {
+    const { Y, peers } = window.ytDemo
+    const [a, b] = peers
+    const rel = Y.relativePositionToJSON(Y.createRelativePositionFromTypeIndex(b.doc.getText('trix'), 2))
+    const cursor = { anchor: rel, head: rel }
+    const states = [
+      { cursor: 'nope' }, { cursor: { anchor: null, head: null } }, { cursor: { anchor: 5, head: {} } },
+      { cursor: { anchor: { type: { client: 999999, clock: 5 } }, head: { type: { client: 999999, clock: 5 } } } },
+      { cursor, user: 'not an object' },
+      { cursor, user: { name: '<img src=x: onerror=window.pwned=1>', color: 'red;position:fixed;inset:0;width:100vw;height:100vh;opacity:1;pointer-events:auto' } },
+      { cursor, user: { name: { toString: null }, color: 7 } },
+      { cursor, user: { name: 'x'.repeat(100000), color: 'url(https://example.invalid/track)' } }
+    ]
+    const seen = []
+    for (const st of states) {
+      b.awareness.setLocalState({ user: { name: 'B', color: '#00f' }, ...st })
+      await new Promise((resolve) => setTimeout(resolve, 40))
+      const overlay = document.querySelector('[data-y-trix-overlay]')
+      for (const n of overlay.querySelectorAll('*')) {
+        const style = n.getAttribute('style') || ''
+        if (/fixed|inset|pointer-events|url\(/.test(style) || n.textContent.length > 60 || n.getBoundingClientRect().width > 200 || n.children.length > 1) seen.push(style.slice(0, 120) + ' / ' + n.textContent.slice(0, 20))
+      }
+    }
+    for (const st of [null, 7, 'str']) { b.awareness.setLocalState(st); await new Promise((resolve) => setTimeout(resolve, 20)) }
+    // a well formed state is still drawn afterwards
+    b.awareness.setLocalState({ user: { name: 'B', color: '#00f' }, cursor })
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    const drawn = document.querySelector('[data-y-trix-overlay]').querySelectorAll('[data-y-caret]').length
+    b.element.remove()
+    a.editor.insertString('typed after the other editor was removed')
+    a.binding.destroy()
+    a.binding.destroy()
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    return { seen, drawn, pwned: window.pwned }
+  })
+  expect(res.seen).toEqual([])
+  expect(res.drawn).toBe(1)
+  expect(res.pwned).toBeUndefined()
+  expect(errors).toEqual([])
+})
