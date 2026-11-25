@@ -81,11 +81,17 @@ and `chromium-trix2.0.0` projects rerun the sync tests against those Trix
 versions (`?trix=2.0.0` on the demo page).
 
 `tests/provider.spec.js` runs the binding through the real providers, one
-editor per browser context: `y-websocket` against the y-websocket 2 server
-with LevelDB persistence (two browsers, offline edits and reconnect, a late
-joiner after everyone left), and `y-indexeddb` (reload). The demo page for
-that is `?mode=yws&room=r&peer=0` (`&persist` adds y-indexeddb); start the
-server with `PORT=5185 node node_modules/y-websocket-server/bin/server.cjs`.
+editor per browser context: `y-websocket` (two browsers, offline edits and
+reconnect, a late joiner after everyone left) and `y-indexeddb` (reload).
+The y-websocket tests run against two servers: `@y/websocket-server` 0.1.1,
+the last release on Yjs 13, with LevelDB persistence, and 0.1.5, the latest,
+which runs Yjs 14 inside and speaks the same protocol. 0.1.5 needs
+`@y/protocols` pinned to 1.0.6-1 (see `overrides` in package.json), or it
+loads two copies of Yjs and fails on every update. Yjs 14 itself (`@y/y`)
+is a release candidate with a different type API and is not supported.
+The demo page is `?mode=yws&room=r&peer=0` (`&persist` adds y-indexeddb);
+start a
+server with `PORT=5185 node node_modules/y-websocket-server-13/src/server.js`.
 
 `node demo/swarm.mjs` (see its header) runs four separate browsers, mixing
 Chromium, WebKit and Firefox, that edit one document at random through

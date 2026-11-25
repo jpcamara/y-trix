@@ -7,7 +7,7 @@
 //
 //   npm run build:demo
 //   node demo/server.js &
-//   PORT=5185 node node_modules/y-websocket-server/bin/server.cjs &
+//   PORT=5185 node node_modules/y-websocket-server-13/src/server.js &
 //   ROUNDS=5 SECONDS=30 node demo/swarm.mjs
 //
 // UNDO=0 leaves out undo/redo.

@@ -23,8 +23,10 @@ export default defineConfig({
     : []),
   webServer: [
     { command: 'node demo/server.js', port: 5175, reuseExistingServer: true },
-    // The y-websocket 2 server with LevelDB persistence, for
-    // tests/provider.spec.js. (@y/websocket-server 0.1.5 fails on every update.)
-    { command: 'node node_modules/y-websocket-server/bin/server.cjs', env: { PORT: '5185', YPERSISTENCE: join(tmpdir(), 'y-trix-test-leveldb') }, port: 5185, reuseExistingServer: true }
+    // Two y-websocket servers for tests/provider.spec.js: the last release on
+    // Yjs 13 (0.1.1, with LevelDB persistence) and the latest (0.1.5, which
+    // runs Yjs 14 inside; package.json pins @y/protocols so it gets one copy).
+    { command: 'node node_modules/y-websocket-server-13/src/server.js', env: { PORT: '5185', YPERSISTENCE: join(tmpdir(), 'y-trix-test-leveldb') }, port: 5185, reuseExistingServer: true },
+    { command: 'node node_modules/@y/websocket-server/src/server.js', env: { PORT: '5187' }, port: 5187, reuseExistingServer: true }
   ]
 })
