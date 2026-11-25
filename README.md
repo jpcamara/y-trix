@@ -74,8 +74,9 @@ node demo/server.js          # http://localhost:5175/ (run `npm run build:demo` 
 The demo shows two editors with their own `Y.Doc`s connected in the page
 (online toggle, delay, "add late joiner").
 
-Tests run in Chromium and WebKit; `BROWSERS=chromium,webkit,firefox` picks
-engines.
+Tests run in Chromium, WebKit and Firefox; `BROWSERS=chromium,webkit` picks
+engines. On macOS the config starts Firefox with a stand-in home folder,
+because macOS 27 denies it its usual app-data folder.
 
 Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 (`FUZZ_NO_UNDO=1` drops undo from the op mix).
@@ -94,6 +95,4 @@ Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
   undo or redo and redraws the editor from Y, so the editor never disagrees
   with its own Y doc. Creating the `Y.Doc` with `{ gc: false }` avoids the
   exception, at the cost of a larger doc.
-- Tested with Trix 2.1.19 in Chromium and WebKit. Firefox is wired up
-  (`BROWSERS=firefox npm test`) but not run here: Playwright's Firefox build
-  does not start on macOS 27.
+- Tested with Trix 2.1.19 in Chromium, WebKit and Firefox.
