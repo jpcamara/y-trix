@@ -67,9 +67,11 @@ export const consistent = (page) => page.evaluate(() => window.ytDemo.peers.map(
 
 /** Each peer's DOM is what Trix renders for its document (nothing stale on screen). */
 export const rendered = (page) => page.evaluate(() => window.ytDemo.peers.map((p) => {
-  // Trix leaves the browser's own &nbsp; for a typed space in place
+  // while an attachment is selected, Trix shows its editing controls and holds redraws back
+  if (p.editor.composition.editingAttachment) return true
+  // Trix leaves the browser's own &nbsp; for a typed space in place, and a <br> for a newline in a code block
   // and drops data-trix-serialized-attributes once an image has loaded
-  const strip = (html) => html.replace(/ data-trix-(id|serialized-attributes|store-key)="[^"]*"/g, '').replace(/&nbsp;/g, ' ')
+  const strip = (html) => html.replace(/ data-trix-(id|serialized-attributes|store-key)="[^"]*"/g, '').replace(/&nbsp;/g, ' ').replace(/<br>/g, '\n')
   return strip(p.element.innerHTML) === strip(p.element.editorController.compositionController.documentView.constructor.render(p.editor.getDocument()).innerHTML)
 }))
 
@@ -86,10 +88,11 @@ export async function converge (page, n = 2, timeout = 5000) {
   expect(await consistent(page)).toEqual(new Array(n).fill(true))
   await expect.poll(() => rendered(page)).toEqual(new Array(n).fill(true)).catch(async (e) => {
     console.log(await page.evaluate(() => window.ytDemo.peers.map((p) => {
-      const strip = (html) => html.replace(/ data-trix-(id|serialized-attributes|store-key)="[^"]*"/g, '').replace(/&nbsp;/g, ' ')
+      const strip = (html) => html.replace(/ data-trix-(id|serialized-attributes|store-key)="[^"]*"/g, '').replace(/&nbsp;/g, ' ').replace(/<br>/g, '\n')
       const a = strip(p.element.innerHTML); const b = strip(p.element.editorController.compositionController.documentView.constructor.render(p.editor.getDocument()).innerHTML)
       let i = 0; while (i < a.length && a[i] === b[i]) i++
-      return 'DOM  ' + a.slice(Math.max(0, i - 80), i + 200) + '\nWANT ' + b.slice(Math.max(0, i - 80), i + 200)
+      const c = p.element.editorController
+      return 'STATE ' + JSON.stringify({ same: a === b, lenDom: a.length, lenWant: b.length, editingAttachment: !!p.editor.composition.editingAttachment, handlingInput: !!c.handlingInput, composing: !!c.inputController.composing, scheduled: !!c.inputController.scheduledRender, held: p.binding.held, last: p.binding.lastDoc === p.editor.getDocument(), revision: [c.compositionController.revision, p.editor.composition.revision], synced: c.compositionController.documentView.isSynced() }) + '\nDOM  ' + a.slice(Math.max(0, i - 80), i + 200) + '\nWANT ' + b.slice(Math.max(0, i - 80), i + 200)
     }).join('\n')))
     throw e
   })

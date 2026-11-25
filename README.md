@@ -65,6 +65,13 @@ concurrent edits. Changing a block's attributes formats one character.
   the real doc, local changes are written to it and passed on, and remote
   changes are shown when the composition ends. The shadow is created at the
   first composition, so it costs nothing until an input method is used.
+- Emoji: positions are UTF-16 offsets, as in Trix, and the API allows an
+  edit between the two halves of an emoji (a caret cannot get there). Yjs
+  cannot send half a pair, so the binding writes U+FFFD for each half and
+  shows that here too.
+- Trix does not redraw while an attachment is selected for editing. When a
+  remote change arrives the binding deselects it, unless the user is typing
+  its caption, so that other people's changes show.
 - Remote carets and selections are drawn in an overlay appended to
   `document.body`.
 - Attachments keep their Trix `Attachment` object across remote rebuilds.
@@ -123,6 +130,10 @@ Chromium, WebKit and Firefox, that edit one document at random through
 y-websocket with offline spells and undo, then checks that all of them and
 a late joiner hold the same document.
 
+`tests/wide.spec.js` is a wider fuzz with three editors: attachments,
+pasted HTML, nesting, undo and redo, offline spells, and positions inside
+emoji. `WIDE_SEEDS=1,2,3 WIDE_OPS=160 npx playwright test wide` picks runs.
+
 Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 (`FUZZ_NO_UNDO=1` drops undo from the op mix).
 
@@ -133,10 +144,6 @@ Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
   depending on client order, and undo can restore format markers. Both peers
   get the same result. The binding treats block attributes on anything but a
   block break as noise.
-- Positions are UTF-16 offsets, as in Trix. A change made through the API
-  at a position between the two halves of an emoji (a caret cannot be put
-  there, but `setSelectedRange` can) splits the pair, and Yjs sends each
-  half as U+FFFD, so the editors end up different.
 - A file attachment is shared before it is uploaded, without its file. Other
   peers see it once the app's upload handler sets `url`.
 - Yjs undo has two open bugs with nested types, yjs/yjs#823 (peers can

@@ -152,6 +152,20 @@ test('trix: replacing an emoji with another keeps both whole', async ({ page }) 
   expect(await converge(page)).toContain('Hello\u{1F469}\u200d\u{1F469}\u200d\u{1F467}\u{1F600}\u{1F601} world')
 })
 
+test('trix: an emoji split by an edit inside it is the same for everyone', async ({ page }) => {
+  await open(page)
+  await caret(page, 0, 5)
+  await page.keyboard.insertText('\u{1F680}')
+  await converge(page)
+  // a caret cannot be put between the two halves, but the API can
+  await page.evaluate(() => { const ed = window.ytDemo.peers[0].editor; ed.setSelectedRange([6, 6]); ed.insertString('x') })
+  const out = await converge(page)
+  expect(out).toContain('Hello\ufffdx\ufffd world')
+  // and half of it made bold
+  await page.evaluate(() => { const ed = window.ytDemo.peers[1].editor; ed.setSelectedRange([0, 0]); ed.insertString('\u{1F600}'); ed.setSelectedRange([0, 1]); ed.activateAttribute('bold') })
+  expect(await converge(page)).toContain('\ufffd\ufffdHello')
+})
+
 test('trix: remote edits do not move the local caret', async ({ page }) => {
   await open(page)
   const start = await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().toString().indexOf('paragraph'))
@@ -273,6 +287,20 @@ test('trix: undoing an attachment attribute change gives every editor the old at
   await page.evaluate(() => window.ytDemo.peers[0].editor.redo())
   await converge(page)
   expect(await docJSON(page, 0)).toContain('example.com/carol')
+})
+
+test('trix: a selected attachment does not hold remote changes back', async ({ page }) => {
+  await open(page)
+  await caret(page, 0, 5)
+  await page.evaluate(() => window.ytDemo.peers[0].editor.insertAttachment(new window.Trix.Attachment({ content: '<b>@m</b>', contentType: 'mention' })))
+  // Backspace after an attachment selects it; Trix then stops redrawing
+  await page.keyboard.press('Backspace')
+  expect(await page.evaluate(() => !!window.ytDemo.peers[0].editor.composition.editingAttachment)).toBe(true)
+  await caret(page, 1, 0)
+  await page.keyboard.type('Remote. ')
+  await converge(page)
+  // on screen, not only in the document
+  await expect.poll(() => page.evaluate(() => window.ytDemo.peers[0].element.textContent)).toContain('Remote. Hello')
 })
 
 test('trix: applying remote changes does not echo updates', async ({ page }) => {

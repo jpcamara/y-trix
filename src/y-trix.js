@@ -27,6 +27,9 @@ import { textDiff } from './text-diff.js'
 
 const OBJECT = '￼' // Trix's (and our) string stand-in for an attachment
 
+const SURROGATE = /[\ud800-\udfff]/
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g
+
 const stable = (v) => {
   if (v === null || typeof v !== 'object') return JSON.stringify(v)
   if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']'
@@ -328,7 +331,21 @@ export class TrixBinding {
     while (s < min - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++
     const aRuns = trixRuns(a.slice(p, a.length - s))
     const bRuns = trixRuns(b.slice(p, b.length - s))
+    // Half of a surrogate pair on its own (an emoji split by an edit at a
+    // position inside it, which the API allows) cannot be sent: Yjs would
+    // give the other editors U+FFFD and keep the half here. Write U+FFFD to
+    // begin with, and show it here too.
+    let split = false
+    for (const r of bRuns) {
+      if (r.embed || !SURROGATE.test(r.str)) continue
+      const fixed = r.str.replace(LONE_SURROGATE, '\ufffd')
+      if (fixed !== r.str) { r.str = fixed; split = true }
+    }
     this.wdoc.transact(() => this.applyRuns(base, aRuns, bRuns, hint === undefined ? undefined : hint - base), this)
+    if (split && !this.held) {
+      const range = this.isFocused() ? this.safeSelectedRange() : null
+      this.setDocumentRemote(new this.T.Document(this.runsToBlocks(deltaRuns(this.ytext.toDelta()))), range)
+    }
   }
 
   /**
@@ -694,6 +711,14 @@ export class TrixBinding {
     const focused = this.isFocused()
     const saved = !focused && domSel.rangeCount > 0 ? domSel.getRangeAt(0).cloneRange() : null
     const active = this.element.ownerDocument.activeElement
+    // Trix does not redraw while an attachment is selected for editing, so
+    // nothing anyone else did would show until this user clicked away.
+    // Deselect it, unless they are typing its caption.
+    if (this.composition.editingAttachment) {
+      const field = this.element.ownerDocument.activeElement
+      const inCaption = field !== null && field.nodeName === 'TEXTAREA' && this.element.contains(field)
+      if (!inCaption) this.composition.stopEditingAttachment()
+    }
     this.applyingRemote = true
     try {
       this.origSetDocument.call(this.composition, document)
