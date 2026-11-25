@@ -70,8 +70,6 @@ for (const [server, port] of Object.entries(SERVERS)) {
     await a.keyboard.type(' Offline A.')
     await a.evaluate(() => window.ytDemo.peers[0].binding.undoManager.stopCapturing())
     await a.keyboard.press('Enter')
-    // Trix itself misplaces a key that arrives within a frame of Enter
-    await a.waitForTimeout(100)
     await a.keyboard.type('New from A')
     await caret(b, 0, 'end')
     await b.keyboard.type(' Online B.')

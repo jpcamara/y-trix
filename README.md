@@ -54,6 +54,10 @@ concurrent edits. Changing a block's attributes formats one character.
   window selection and can move it into this editor.
 - Undo: `editor.undo/redo/canUndo/canRedo` use a `Y.UndoManager` that tracks
   only this binding; Trix's own undo entries are dropped.
+- Enter: Trix renders an Enter on the next animation frame, and a key that
+  arrives before that frame lands in the wrong place (plain Trix does this
+  too; it renders at once only on iOS). The binding makes Trix render as soon
+  as the browser has finished the Enter.
 - Remote carets and selections are drawn in an overlay appended to
   `document.body`.
 - Attachments keep their Trix `Attachment` object across remote rebuilds.

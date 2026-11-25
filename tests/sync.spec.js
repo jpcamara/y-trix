@@ -114,6 +114,18 @@ test('trix: backspace merging two blocks keeps concurrent text in both', async (
   expect(await page.evaluate(() => window.ytDemo.peers[1].editor.getDocument().getBlocks().length)).toBe(1)
 })
 
+test('trix: a key typed right after Enter lands after the line break', async ({ page }) => {
+  await open(page)
+  // at the end of the first block, and in the middle of the second
+  for (const [pos, want] of [[38, 'Hello world. Edit me in either editor.\nNew\nSecond paragraph.\n'], [46, 'Hello world. Edit me in either editor.\nNew\nSec\nNewond paragraph.\n']]) {
+    await caret(page, 0, pos)
+    // no pause between the keys: Trix would render the Enter on the next frame
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('New')
+    expect(await converge(page)).toBe(want)
+  }
+})
+
 test('trix: remote edits do not move the local caret', async ({ page }) => {
   await open(page)
   const start = await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().toString().indexOf('paragraph'))
@@ -212,6 +224,29 @@ test('trix: attachments sync, keep their identity, and take attribute changes', 
   await page.evaluate(() => window.img.setAttributes({ url: '/demo/assets/uploaded.png', href: '/demo/assets/uploaded.png' }))
   await converge(page)
   expect(await docJSON(page, 1)).toContain('uploaded.png')
+})
+
+test('trix: undoing an attachment attribute change gives every editor the old attachment', async ({ page }) => {
+  await open(page)
+  await caret(page, 0, 'end')
+  await page.evaluate(() => {
+    const p = window.ytDemo.peers[0]
+    window.att = new window.Trix.Attachment({ content: '<span class="mention">@carol</span>', contentType: 'mention' })
+    p.editor.insertAttachment(window.att)
+    p.binding.undoManager.stopCapturing()
+  })
+  await converge(page)
+  // changed in place, as a link applied over the attachment does
+  await page.evaluate(() => window.att.setAttributes({ href: 'https://example.com/carol' }))
+  await converge(page)
+  expect(await docJSON(page, 1)).toContain('example.com/carol')
+  await page.evaluate(() => window.ytDemo.peers[0].editor.undo())
+  await converge(page)
+  expect(await docJSON(page, 0)).not.toContain('example.com/carol')
+  expect(await docJSON(page, 0)).toContain('@carol')
+  await page.evaluate(() => window.ytDemo.peers[0].editor.redo())
+  await converge(page)
+  expect(await docJSON(page, 0)).toContain('example.com/carol')
 })
 
 test('trix: applying remote changes does not echo updates', async ({ page }) => {

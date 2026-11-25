@@ -159,6 +159,18 @@ export class TrixBinding {
     this.onAttachmentEdit = (e) => this.syncAttachment(e.attachment.attachment || e.attachment)
     element.addEventListener('trix-attachment-edit', this.onAttachmentEdit)
 
+    // Trix changes its document when Enter's beforeinput arrives, lets the
+    // browser split the block in the DOM, and renders its own version on the
+    // next animation frame. A key that arrives before that frame is read
+    // against the browser's DOM and lands in the wrong place. Trix renders
+    // at once for this on iOS only; do it everywhere, as soon as the browser
+    // has finished its own change.
+    this.onInput = (event) => {
+      const input = this.controller.inputController
+      if ((event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') && input && input.scheduledRender && input.render) input.render()
+    }
+    element.addEventListener('input', this.onInput)
+
     this.undoManager = new Y.UndoManager(ytext, {
       trackedOrigins: new Set([this]),
       captureTimeout: opts.captureTimeout ?? 500
@@ -358,7 +370,10 @@ export class TrixBinding {
       if (r.embed) {
         flushText()
         let att = this.attachments.get(r.embed)
-        if (!att) {
+        // Attachments change in place, so a remembered one can be newer than
+        // its embed (undo brings the old embed back). Then make one from the
+        // embed.
+        if (!att || !equal(att.getAttributes(), r.embed.attachment || {})) {
           att = new Attachment(r.embed.attachment || {})
           this.attachments.set(r.embed, att)
         }
@@ -633,6 +648,7 @@ export class TrixBinding {
     this.ytext.unobserve(this.onYChange)
     this.composition.setDocument = this.origSetDocument
     this.element.removeEventListener('trix-attachment-edit', this.onAttachmentEdit)
+    this.element.removeEventListener('input', this.onInput)
     Object.assign(this.editor, this.origUndo)
     this.undoManager.destroy()
     if (this.awareness) {

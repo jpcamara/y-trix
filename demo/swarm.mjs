@@ -69,7 +69,7 @@ async function agent (page, i, until) {
     [30, 'type', async () => { await place(); await page.keyboard.type(' ' + words(1 + Math.floor(R() * 4)), { delay: 15 + R() * 40 }) }],
     [10, 'delete', async () => { await select(1 + Math.floor(R() * 10)); await page.keyboard.press('Backspace') }],
     [6, 'backspace', async () => { await place(); await page.keyboard.press('Backspace') }],
-    [10, 'enter', async () => { await place(); await page.keyboard.press('Enter'); await page.waitForTimeout(80); await page.keyboard.type(words(2), { delay: 20 }) }],
+    [10, 'enter', async () => { await place(); await page.keyboard.press('Enter'); await page.keyboard.type(words(2), { delay: 20 }) }],
     [12, 'inline', async () => { await select(2 + Math.floor(R() * 10)); await toggle(pick(['bold', 'italic', 'strike'])) }],
     [4, 'link', async () => { await select(3 + Math.floor(R() * 6)); await editor(page, 'ed.activateAttribute("href", arg)', 'https://example.com/' + pick(WORDS)) }],
     [10, 'block', async () => { await place(); await toggle(pick(['heading1', 'quote', 'code', 'bullet', 'number'])) }],
