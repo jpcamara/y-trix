@@ -3,7 +3,12 @@
 <head>
 <meta charset="utf-8">
 <title>y-trix demo</title>
-<link rel="stylesheet" href="/node_modules/trix/dist/trix.css">
+<script>
+  // ?trix=2.0.10 or 2.0.0 loads an older Trix (npm aliases trix-2.0.10, trix-2.0.0)
+  const old = new URLSearchParams(location.search).get('trix')
+  const suffix = /^[\d.]+$/.test(old || '') ? '-' + old : ''
+  document.write(`<link rel="stylesheet" href="/node_modules/trix${suffix}/dist/trix.css">`)
+</script>
 <style>
   body { font: 14px system-ui, sans-serif; margin: 16px; }
   .row { display: flex; gap: 16px; flex-wrap: wrap; }
@@ -21,6 +26,6 @@
   
 </div>
 <div class="row" id="peers"></div>
-<script type="module" src="./dist/main.js"></script>
+<script>document.write(`<script type="module" src="./dist/main${suffix}.js"><\/script>`)</script>
 </body>
 </html>

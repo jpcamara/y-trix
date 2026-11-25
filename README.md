@@ -76,7 +76,9 @@ The demo shows two editors with their own `Y.Doc`s connected in the page
 
 Tests run in Chromium, WebKit and Firefox; `BROWSERS=chromium,webkit` picks
 engines. On macOS the config starts Firefox with a stand-in home folder,
-because macOS 27 denies it its usual app-data folder.
+because macOS 27 denies it its usual app-data folder. The `chromium-trix2.0.10`
+and `chromium-trix2.0.0` projects rerun the sync tests against those Trix
+versions (`?trix=2.0.0` on the demo page).
 
 `tests/provider.spec.js` runs the binding through the real providers, one
 editor per browser context: `y-websocket` against the y-websocket 2 server
@@ -108,4 +110,5 @@ Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
   this data model in plain Yjs with undo and gets 0 divergences and 0
   exceptions in 50,000 runs. The binding still catches an exception from
   undo or redo and redraws the editor from Y.
-- Tested with Trix 2.1.19 in Chromium, WebKit and Firefox.
+- Tested with Trix 2.1.19 in Chromium, WebKit and Firefox, and with Trix
+  2.0.10 and 2.0.0 in Chromium.

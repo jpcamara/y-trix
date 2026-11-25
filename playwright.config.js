@@ -17,7 +17,10 @@ export default defineConfig({
   timeout: 30000,
   fullyParallel: true,
   use: { baseURL: 'http://localhost:5175' },
-  projects: browsers.map((name) => ({ name, use: use(name) })),
+  projects: browsers.map((name) => ({ name, use: use(name) })).concat(browsers.includes('chromium')
+    // The last 2.0 release and the oldest release the peer range allows
+    ? ['2.0.10', '2.0.0'].map((v) => ({ name: 'chromium-trix' + v, use: use('chromium'), metadata: { trix: v }, testMatch: /sync\.spec\.js/ }))
+    : []),
   webServer: [
     { command: 'node demo/server.js', port: 5175, reuseExistingServer: true },
     // The y-websocket 2 server with LevelDB persistence, for

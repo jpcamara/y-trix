@@ -1,11 +1,16 @@
-import { expect } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
 export async function open (page, query = '') {
   page.on('console', (m) => { if (m.type() === 'warning' || m.type() === 'error') console.log(`[browser ${m.type()}]`, m.text()) })
   page.on('pageerror', (e) => console.log('[pageerror]', e.message))
+  const version = test.info().project.metadata?.trix
+  if (version) query += (query.includes('?') ? '&' : '?') + 'trix=' + version
   await page.goto('/demo/index.html' + query)
+  if (version) expect(await page.evaluate(() => window.Trix.VERSION)).toBe(version)
   await page.waitForFunction(() => window.ytDemo && window.ytDemo.peers.length >= 2)
   await page.evaluate(() => window.ytDemo.ready)
+  // Trix 2.0 has its classes under Trix.models only; the tests use the 2.1 names
+  await page.evaluate(() => { for (const k of ['Document', 'Text', 'Attachment']) if (!window.Trix[k]) window.Trix[k] = window.Trix.models[k] })
 }
 
 /**
@@ -65,7 +70,7 @@ export const rendered = (page) => page.evaluate(() => window.ytDemo.peers.map((p
   // Trix leaves the browser's own &nbsp; for a typed space in place
   // and drops data-trix-serialized-attributes once an image has loaded
   const strip = (html) => html.replace(/ data-trix-(id|serialized-attributes|store-key)="[^"]*"/g, '').replace(/&nbsp;/g, ' ')
-  return strip(p.element.innerHTML) === strip(window.Trix.views.DocumentView.render(p.editor.getDocument()).innerHTML)
+  return strip(p.element.innerHTML) === strip(p.element.editorController.compositionController.documentView.constructor.render(p.editor.getDocument()).innerHTML)
 }))
 
 export async function converge (page, n = 2, timeout = 5000) {
@@ -82,7 +87,7 @@ export async function converge (page, n = 2, timeout = 5000) {
   await expect.poll(() => rendered(page)).toEqual(new Array(n).fill(true)).catch(async (e) => {
     console.log(await page.evaluate(() => window.ytDemo.peers.map((p) => {
       const strip = (html) => html.replace(/ data-trix-(id|serialized-attributes|store-key)="[^"]*"/g, '').replace(/&nbsp;/g, ' ')
-      const a = strip(p.element.innerHTML); const b = strip(window.Trix.views.DocumentView.render(p.editor.getDocument()).innerHTML)
+      const a = strip(p.element.innerHTML); const b = strip(p.element.editorController.compositionController.documentView.constructor.render(p.editor.getDocument()).innerHTML)
       let i = 0; while (i < a.length && a[i] === b[i]) i++
       return 'DOM  ' + a.slice(Math.max(0, i - 80), i + 200) + '\nWANT ' + b.slice(Math.max(0, i - 80), i + 200)
     }).join('\n')))
