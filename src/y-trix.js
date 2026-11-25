@@ -36,9 +36,14 @@ const equal = (a, b) => a === b || stable(a) === stable(b)
 
 const isEmptyObject = (o) => !o || Object.keys(o).length === 0
 
-/** Y attributes of a block's break character. */
-const breakAttrs = (block) => {
-  const attrs = { blockBreak: true }
+/**
+ * Y attributes of a block's break character. Trix can leave text attributes
+ * on the break piece (bold applied across a block boundary), so they are kept.
+ */
+const breakAttrs = (block, piece) => {
+  const attrs = { ...piece.getAttributes(), blockBreak: true }
+  delete attrs.block
+  delete attrs.html
   if (block.attributes.length > 0) attrs.block = block.attributes.slice()
   if (!isEmptyObject(block.htmlAttributes)) attrs.html = { ...block.htmlAttributes }
   return attrs
@@ -55,7 +60,7 @@ const trixRuns = (blocks) => {
       if (piece.attachment) {
         runs.push({ embed: { attachment: piece.attachment.getAttributes() }, attrs: piece.getAttributes(), attachment: piece.attachment })
       } else if (piece.isBlockBreak()) {
-        runs.push({ str: '\n', attrs: breakAttrs(block) })
+        runs.push({ str: '\n', attrs: breakAttrs(block, piece) })
       } else {
         runs.push({ str: piece.toString(), attrs: piece.getAttributes() })
       }
@@ -331,7 +336,7 @@ export class TrixBinding {
     const blocks = []
     let pieces = []
     const close = (attrs) => {
-      pieces.push(new StringPiece('\n', { blockBreak: true }))
+      pieces.push(new StringPiece('\n', { ...textAttrs(attrs), blockBreak: true }))
       blocks.push(new Block(new Text(pieces), attrs.block ? attrs.block.slice() : [], attrs.html ? { ...attrs.html } : {}))
       pieces = []
     }
@@ -454,6 +459,10 @@ export class TrixBinding {
       this.applyingRemote = false
     }
     this.lastDoc = this.composition.document
+    // Trix skips rendering while it handles an input event and renders after
+    // only if its own input code asked. Undo from the keyboard lands here
+    // inside such an event, so render now, as Trix's own undo does.
+    if (this.controller.handlingInput) this.controller.render()
     if (focused && sel) {
       try { this.editor.setSelectedRange(sel) } catch (e) {}
     } else if (!focused) {

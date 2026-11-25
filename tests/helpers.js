@@ -60,6 +60,14 @@ export const consistent = (page) => page.evaluate(() => window.ytDemo.peers.map(
   return window.ytNorm(fromY) === window.ytNorm(p.editor.getDocument()) && p.doc.getText('trix').length === p.editor.getDocument().getLength()
 }))
 
+/** Each peer's DOM is what Trix renders for its document (nothing stale on screen). */
+export const rendered = (page) => page.evaluate(() => window.ytDemo.peers.map((p) => {
+  // Trix leaves the browser's own &nbsp; for a typed space in place
+  // and drops data-trix-serialized-attributes once an image has loaded
+  const strip = (html) => html.replace(/ data-trix-(id|serialized-attributes|store-key)="[^"]*"/g, '').replace(/&nbsp;/g, ' ')
+  return strip(p.element.innerHTML) === strip(window.Trix.views.DocumentView.render(p.editor.getDocument()).innerHTML)
+}))
+
 export async function converge (page, n = 2, timeout = 5000) {
   await expect.poll(async () => {
     const all = []
@@ -71,5 +79,14 @@ export async function converge (page, n = 2, timeout = 5000) {
   })
   await docJSON(page, 0)
   expect(await consistent(page)).toEqual(new Array(n).fill(true))
+  await expect.poll(() => rendered(page)).toEqual(new Array(n).fill(true)).catch(async (e) => {
+    console.log(await page.evaluate(() => window.ytDemo.peers.map((p) => {
+      const strip = (html) => html.replace(/ data-trix-(id|serialized-attributes|store-key)="[^"]*"/g, '').replace(/&nbsp;/g, ' ')
+      const a = strip(p.element.innerHTML); const b = strip(window.Trix.views.DocumentView.render(p.editor.getDocument()).innerHTML)
+      let i = 0; while (i < a.length && a[i] === b[i]) i++
+      return 'DOM  ' + a.slice(Math.max(0, i - 80), i + 200) + '\nWANT ' + b.slice(Math.max(0, i - 80), i + 200)
+    }).join('\n')))
+    throw e
+  })
   return text(page, 0)
 }
