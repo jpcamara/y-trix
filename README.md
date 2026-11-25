@@ -133,6 +133,10 @@ Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
   depending on client order, and undo can restore format markers. Both peers
   get the same result. The binding treats block attributes on anything but a
   block break as noise.
+- Positions are UTF-16 offsets, as in Trix. A change made through the API
+  at a position between the two halves of an emoji (a caret cannot be put
+  there, but `setSelectedRange` can) splits the pair, and Yjs sends each
+  half as U+FFFD, so the editors end up different.
 - A file attachment is shared before it is uploaded, without its file. Other
   peers see it once the app's upload handler sets `url`.
 - Yjs undo has two open bugs with nested types, yjs/yjs#823 (peers can
