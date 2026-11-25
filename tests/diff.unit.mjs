@@ -1,6 +1,6 @@
 // Property test for simpleDiff: always correct, never larger than the unhinted diff,
 // and an insertion ending at the caret is placed at the caret. Run: node tests/diff.unit.mjs
-import { simpleDiff } from '../src/text-diff.js'
+import { simpleDiff, textDiff } from '../src/text-diff.js'
 let s = 3
 const rand = (n) => { s = (s * 16807) % 2147483647; return s % n }
 const str = (n) => Array.from({ length: n }, () => 'ab'[rand(2)]).join('')
@@ -15,12 +15,32 @@ for (let i = 0; i < 200000; i++) {
   if (out !== b || d.remove + d.insert.length > base.remove + base.insert.length || d.index < 0 || d.remove < 0) { bad++; if (bad < 4) console.log({ a, b, cursor, d }) }
   if (cursor === pos + ins.length && del === 0 && d.remove === 0 && d.index !== pos) { bad++; if (bad < 4) console.log('hint ignored', { a, b, cursor, d }) }
 }
+
+// Surrogate pairs: no edit may remove or insert half of one, for either diff.
+const CHARS = ['a', 'b', ' ', '\u{1F600}', '\u{1F601}', '\u{1F469}', '\u{1F9D1}', '\u200d']
+const estr = (n) => Array.from({ length: n }, () => CHARS[rand(CHARS.length)]).join('')
+const isHigh = (c) => c >= '\ud800' && c <= '\udbff'
+const isLow = (c) => c >= '\udc00' && c <= '\udfff'
+const whole = (s) => { for (let i = 0; i < s.length; i++) { if (isHigh(s[i])) { if (!isLow(s[i + 1] || '')) return false; i++ } else if (isLow(s[i])) return false } return true }
+let split = 0
+for (let i = 0; i < 200000; i++) {
+  const a = estr(rand(7)); const b = rand(4) === 0 ? estr(rand(7)) : (() => { const cs = Array.from(a); const at = rand(cs.length + 1); cs.splice(at, rand(Math.min(2, cs.length - at) + 1), ...Array.from(estr(rand(3)))); return cs.join('') })()
+  const cursor = rand(3) === 0 ? undefined : rand(b.length + 1)
+  for (const ops of [[simpleDiff(a, b, cursor)], textDiff(a, b, cursor)]) {
+    let out = a
+    for (const op of ops.slice().reverse()) out = out.slice(0, op.index) + op.insert + out.slice(op.index + op.remove)
+    const ok = out === b && ops.every((op, k) => whole(op.insert) && whole(a.slice(op.index, op.index + op.remove)) && (k === 0 || ops[k - 1].index + ops[k - 1].remove <= op.index))
+    if (!ok) { split++; if (split < 4) console.log('split pair', JSON.stringify({ a, b, cursor, ops })) }
+  }
+}
+console.log('surrogate pair failures:', split)
+bad += split
 console.log('simpleDiff property failures:', bad)
 if (bad) process.exit(1)
 
 // textDiff: applying the edits right to left reproduces b, and a space turned
 // into a no-break space next to the edit stays a separate small change.
-const { textDiff } = await import('../src/text-diff.js')
+// textDiff is imported above
 let bad2 = 0
 s = 11
 for (let i = 0; i < 100000; i++) {

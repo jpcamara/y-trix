@@ -67,6 +67,20 @@ concurrent edits. Changing a block's attributes formats one character.
   A remote change costs about what a local keystroke costs (about 18 ms,
   nearly all Trix's own render).
 
+## Untrusted content
+
+What a peer puts in the Y doc is shown in everyone else's editor, so the
+binding treats it as untrusted. Before it builds a Trix document from Y it
+keeps only the text and block attributes Trix is configured for, drops
+`javascript:` and other script URLs from links and attachments, checks the
+types of attachment attributes, shows an embed that is not an attachment as
+`\ufffd`, and rewrites `"\r"` (which Trix would silently change). A failure
+while applying a remote change is logged and the editor is redrawn from Y.
+
+The HTML in a content attachment is sanitized by Trix itself, which older
+releases did not do: Trix 2.0 runs script found there. That is why the peer
+dependency is Trix 2.1.15 or later, and the binding warns on anything older.
+
 ## Demo and tests
 
 ```sh
@@ -80,9 +94,9 @@ The demo shows two editors with their own `Y.Doc`s connected in the page
 
 Tests run in Chromium, WebKit and Firefox; `BROWSERS=chromium,webkit` picks
 engines. On macOS the config starts Firefox with a stand-in home folder,
-because macOS 27 denies it its usual app-data folder. The `chromium-trix2.0.10`
-and `chromium-trix2.0.0` projects rerun the sync tests against those Trix
-versions (`?trix=2.0.0` on the demo page).
+because macOS 27 denies it its usual app-data folder. The `chromium-trix2.1.15`
+project reruns the sync and security tests against the oldest supported
+Trix (`?trix=2.1.15` on the demo page).
 
 `tests/provider.spec.js` runs the binding through the real providers, one
 editor per browser context: `y-websocket` (two browsers, offline edits and
@@ -121,4 +135,4 @@ Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
   exceptions in 50,000 runs. The binding still catches an exception from
   undo or redo and redraws the editor from Y.
 - Tested with Trix 2.1.19 in Chromium, WebKit and Firefox, and with Trix
-  2.0.10 and 2.0.0 in Chromium.
+  2.1.15 in Chromium.

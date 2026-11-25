@@ -115,6 +115,44 @@ const textAttrs = (attrs) => {
   return rest
 }
 
+// ---- remote content is untrusted ---------------------------------------
+// What a peer puts in the Y.Text becomes a Trix document in this browser.
+// Trix expects documents made by its own parser, and throws while rendering
+// one with a block attribute it does not know or an attachment whose
+// filename is not a string. So what is read from Y is reduced to what Trix's
+// configuration allows before a document is built from it.
+
+// Attribute values that can run script when used as a URL. Browsers ignore
+// whitespace and control characters inside the scheme.
+const scriptUrl = (value) => {
+  const v = String(value).replace(/[\u0000-\u0020\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g, '').toLowerCase()
+  if (/^(javascript|vbscript|livescript|mocha):/.test(v)) return true
+  return v.startsWith('data:') && !/^data:(image\/(png|jpe?g|gif|webp|bmp|avif|x-icon)|audio\/|video\/)/.test(v)
+}
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
+const ATTACHMENT_STRINGS = new Set(['content', 'contentType', 'filename', 'url', 'href', 'sgid', 'caption', 'presentation'])
+const ATTACHMENT_NUMBERS = new Set(['filesize', 'width', 'height'])
+const PIECE_STRINGS = new Set(['caption', 'presentation'])
+/** Stands in for an embed that is not an attachment; keeps positions aligned. */
+const BAD_EMBED = '\ufffd'
+
+/** An attachment's attributes from an embed, or null if it is not one. */
+const cleanAttachment = (embed) => {
+  if (!isPlainObject(embed) || !isPlainObject(embed.attachment)) return null
+  const out = {}
+  for (const key of Object.keys(embed.attachment)) {
+    const v = embed.attachment[key]
+    if (ATTACHMENT_STRINGS.has(key)) {
+      if (typeof v !== 'string') continue
+      if ((key === 'url' || key === 'href') && scriptUrl(v)) continue
+    } else if (ATTACHMENT_NUMBERS.has(key)) {
+      if (typeof v !== 'number' || !Number.isFinite(v)) continue
+    } else if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') continue
+    out[key] = v
+  }
+  return out
+}
+
 export class TrixBinding {
   /**
    * @param {Y.Text} ytext
@@ -132,6 +170,14 @@ export class TrixBinding {
     this.awareness = awareness || null
     const Trix = opts.Trix || globalThis.Trix
     this.T = Trix.models || Trix
+    this.config = Trix.config
+    // Before 2.1.4 Trix runs script found in an attachment's content, and
+    // with this binding that content can come from any peer. 2.1.15 is the
+    // oldest release without a published XSS advisory.
+    const [major, minor, patch] = String(Trix.VERSION || '').split('.').map(Number)
+    if (major === 2 && (minor < 1 || (minor === 1 && patch < 15))) {
+      console.warn(`y-trix: Trix ${Trix.VERSION} has known XSS holes that a peer can reach through shared content; use 2.1.15 or later`)
+    }
     /** Y embed object -> Trix Attachment, so rebuilt blocks keep their attachments. */
     this.attachments = new WeakMap()
     this.applyingRemote = false
@@ -188,7 +234,13 @@ export class TrixBinding {
 
     this.onYChange = (event, tr) => {
       if (tr.origin === this) return
-      this.applyRemote(event)
+      try {
+        this.applyRemote(event)
+      } catch (e) {
+        // Whatever a peer sent, keep going: show what Y holds.
+        console.error('y-trix: applying a remote change failed', e)
+        try { this.renderAll() } catch (e2) { console.error('y-trix: redraw failed', e2) }
+      }
     }
     ytext.observe(this.onYChange)
 
@@ -348,8 +400,9 @@ export class TrixBinding {
     const blocks = []
     let pieces = []
     const close = (attrs) => {
-      pieces.push(new StringPiece('\n', { ...textAttrs(attrs), blockBreak: true }))
-      blocks.push(new Block(new Text(pieces), attrs.block ? attrs.block.slice() : [], attrs.html ? { ...attrs.html } : {}))
+      pieces.push(new StringPiece('\n', { ...this.cleanTextAttrs(attrs), blockBreak: true }))
+      const block = this.cleanBlockAttrs(attrs.block)
+      blocks.push(new Block(new Text(pieces), block, this.cleanHtmlAttrs(attrs.html, block)))
       pieces = []
     }
     // Adjacent string runs with equal attributes become one piece, as Trix
@@ -368,22 +421,24 @@ export class TrixBinding {
     }
     for (const r of runs) {
       if (r.embed) {
+        const attachment = cleanAttachment(r.embed)
+        if (attachment === null) { addText(BAD_EMBED, {}); continue }
         flushText()
         let att = this.attachments.get(r.embed)
         // Attachments change in place, so a remembered one can be newer than
         // its embed (undo brings the old embed back). Then make one from the
         // embed.
-        if (!att || !equal(att.getAttributes(), r.embed.attachment || {})) {
-          att = new Attachment(r.embed.attachment || {})
+        if (!att || !equal(att.getAttributes(), attachment)) {
+          att = new Attachment(attachment)
           this.attachments.set(r.embed, att)
         }
-        pieces.push(new AttachmentPiece(att, textAttrs(r.attrs)))
+        pieces.push(new AttachmentPiece(att, this.cleanTextAttrs(r.attrs, true)))
         continue
       }
       // Block attributes belong on block breaks only. Concurrent edits (and
       // undo restoring format markers) can leave them on other characters;
       // those are ignored there.
-      const plain = textAttrs(r.attrs)
+      const plain = this.cleanTextAttrs(r.attrs)
       if (!r.attrs.blockBreak) { addText(r.str, plain); continue }
       for (const ch of r.str) {
         if (ch === '\n') { flushText(); close(r.attrs) } else addText(ch, plain)
@@ -394,7 +449,76 @@ export class TrixBinding {
     return blocks
   }
 
+  /**
+   * Text attributes from Y that Trix is configured for, with values of the
+   * kind Trix stores: true, or a string or number (href). Block attributes
+   * are dropped; they belong on block breaks only.
+   */
+  cleanTextAttrs (attrs, attachment = false) {
+    const known = this.config.textAttributes
+    const out = {}
+    for (const key of Object.keys(attrs)) {
+      if (key === 'blockBreak' || key === 'block' || key === 'html') continue
+      const v = attrs[key]
+      if (attachment && PIECE_STRINGS.has(key)) { if (typeof v === 'string') out[key] = v; continue }
+      if (!Object.prototype.hasOwnProperty.call(known, key)) continue
+      if (v !== true && typeof v !== 'string' && typeof v !== 'number') continue
+      if (key === 'href' && (typeof v !== 'string' || scriptUrl(v))) continue
+      out[key] = v
+    }
+    return out
+  }
+
+  /** The block attributes Trix is configured for, in order. */
+  cleanBlockAttrs (block) {
+    if (!Array.isArray(block)) return []
+    const known = this.config.blockAttributes
+    return block.filter((name) => typeof name === 'string' && name !== 'default' && Object.prototype.hasOwnProperty.call(known, name))
+  }
+
+  /** HTML attributes that one of the block's attributes allows, as strings. */
+  cleanHtmlAttrs (html, block) {
+    const out = {}
+    if (!isPlainObject(html)) return out
+    const allowed = new Set(block.flatMap((name) => this.config.blockAttributes[name].htmlAttributes || []))
+    for (const key of Object.keys(html)) {
+      if (allowed.has(key) && (typeof html[key] === 'string' || typeof html[key] === 'number')) out[key] = String(html[key])
+    }
+    return out
+  }
+
+  /**
+   * Trix turns "\r\n" and "\r" into "\n" in every string it stores, which
+   * would leave its document shorter than the Y.Text. Trix never writes a
+   * "\r" itself, so one can only come from another client: rewrite it in Y.
+   * @return {boolean} whether Y changed
+   */
+  normalizeNewlines () {
+    const fixes = [] // [index, followedByNewline, attributes]
+    let pos = 0
+    const delta = this.ytext.toDelta()
+    delta.forEach((op, i) => {
+      if (typeof op.insert !== 'string') { pos += 1; return }
+      for (let k = 0; k < op.insert.length; k++) {
+        if (op.insert[k] !== '\r') continue
+        const next = k + 1 < op.insert.length ? op.insert[k + 1] : (delta[i + 1] && typeof delta[i + 1].insert === 'string' ? delta[i + 1].insert[0] : '')
+        fixes.push([pos + k, next === '\n', op.attributes || {}])
+      }
+      pos += op.insert.length
+    })
+    if (fixes.length === 0) return false
+    this.doc.transact(() => {
+      for (let i = fixes.length - 1; i >= 0; i--) {
+        const [index, crlf, attrs] = fixes[i]
+        this.ytext.delete(index, 1)
+        if (!crlf) this.ytext.insert(index, '\n', attrs)
+      }
+    }, this)
+    return true
+  }
+
   renderAll () {
+    this.normalizeNewlines()
     const blocks = this.runsToBlocks(deltaRuns(this.ytext.toDelta()))
     this.setDocumentRemote(new this.T.Document(blocks))
     this.repairTrailingBreak()
@@ -410,6 +534,12 @@ export class TrixBinding {
     let start = -1
     let oldEnd = 0
     let newEnd = 0
+    if (this.normalizeNewlines()) {
+      // Y no longer matches the event; show all of it.
+      this.renderAll()
+      this.renderCursors()
+      return
+    }
     for (const op of event.delta) {
       if (op.retain !== undefined && !op.attributes) {
         oldPos += op.retain; newPos += op.retain

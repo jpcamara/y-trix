@@ -126,6 +126,32 @@ test('trix: a key typed right after Enter lands after the line break', async ({ 
   }
 })
 
+test('trix: replacing an emoji with another keeps both whole', async ({ page }) => {
+  await open(page)
+  await caret(page, 0, 5)
+  await page.keyboard.insertText('\u{1F600}')
+  expect(await converge(page)).toContain('Hello\u{1F600} world')
+  // Most emoji share their first UTF-16 half, so a minimal diff changes one half
+  await caret(page, 0, 5)
+  await page.evaluate(() => window.ytDemo.peers[0].editor.setSelectedRange([5, 7]))
+  await page.waitForTimeout(50)
+  await page.keyboard.insertText('\u{1F601}')
+  expect(await converge(page)).toContain('Hello\u{1F601} world')
+  // insert before an emoji, and a joined sequence between two
+  await caret(page, 0, 5)
+  await page.keyboard.insertText('\u{1F601}\u{1F600}')
+  await converge(page)
+  await caret(page, 0, 7)
+  await page.keyboard.insertText('\u{1F469}\u200d\u{1F469}\u200d\u{1F467}')
+  const want = 'Hello\u{1F601}\u{1F469}\u200d\u{1F469}\u200d\u{1F467}\u{1F600}\u{1F601} world'
+  expect(await converge(page)).toContain(want)
+  expect(await page.evaluate(() => window.ytDemo.peers[1].doc.getText('trix').toString())).toContain(want)
+  // delete the first of the emoji from the other side
+  await caret(page, 1, 7)
+  await page.keyboard.press('Backspace')
+  expect(await converge(page)).toContain('Hello\u{1F469}\u200d\u{1F469}\u200d\u{1F467}\u{1F600}\u{1F601} world')
+})
+
 test('trix: remote edits do not move the local caret', async ({ page }) => {
   await open(page)
   const start = await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().toString().indexOf('paragraph'))

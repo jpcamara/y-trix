@@ -13,12 +13,12 @@
     "src"
   ],
   "peerDependencies": {
-    "trix": ">=2",
+    "trix": ">=2.1.15",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.0"
   },
   "scripts": {
-    "build:demo": "esbuild demo/main.js --bundle --format=esm --outdir=demo/dist && esbuild demo/main.js --bundle --format=esm --alias:trix=trix-2.0.10 --outfile=demo/dist/main-2.0.10.js && esbuild demo/main.js --bundle --format=esm --alias:trix=trix-2.0.0 --outfile=demo/dist/main-2.0.0.js",
+    "build:demo": "esbuild demo/main.js --bundle --format=esm --outdir=demo/dist && esbuild demo/main.js --bundle --format=esm --alias:trix=trix-2.1.15 --outfile=demo/dist/main-2.1.15.js",
     "test": "node tests/diff.unit.mjs && npm run build:demo && playwright test"
   },
   "devDependencies": {
@@ -26,8 +26,7 @@
     "@y/websocket-server": "0.1.5",
     "esbuild": "^0.28.2",
     "trix": "^2.1.19",
-    "trix-2.0.0": "npm:trix@^2.0.0",
-    "trix-2.0.10": "npm:trix@^2.0.10",
+    "trix-2.1.15": "npm:trix@^2.1.15",
     "y-indexeddb": "^9.0.12",
     "y-protocols": "^1.0.7",
     "y-websocket": "^3.1.0",

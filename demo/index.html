@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <title>y-trix demo</title>
 <script>
-  // ?trix=2.0.10 or 2.0.0 loads an older Trix (npm aliases trix-2.0.10, trix-2.0.0)
+  // ?trix=2.1.15 loads the oldest supported Trix (npm alias trix-2.1.15)
   const old = new URLSearchParams(location.search).get('trix')
   const suffix = /^[\d.]+$/.test(old || '') ? '-' + old : ''
   document.write(`<link rel="stylesheet" href="/node_modules/trix${suffix}/dist/trix.css">`)

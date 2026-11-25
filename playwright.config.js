@@ -18,8 +18,9 @@ export default defineConfig({
   fullyParallel: true,
   use: { baseURL: 'http://localhost:5175' },
   projects: browsers.map((name) => ({ name, use: use(name) })).concat(browsers.includes('chromium')
-    // The last 2.0 release and the oldest release the peer range allows
-    ? ['2.0.10', '2.0.0'].map((v) => ({ name: 'chromium-trix' + v, use: use('chromium'), metadata: { trix: v }, testMatch: /sync\.spec\.js/ }))
+    // The oldest Trix the peer range allows. TRIX_VERSIONS=a,b tries others
+    // (install trix-<version> aliases and bundle demo/dist/main-<version>.js).
+    ? (process.env.TRIX_VERSIONS || '2.1.15').split(',').map((v) => ({ name: 'chromium-trix' + v, use: use('chromium'), metadata: { trix: v }, testMatch: /(sync|security)\.spec\.js/ }))
     : []),
   webServer: [
     { command: 'node demo/server.js', port: 5175, reuseExistingServer: true },
