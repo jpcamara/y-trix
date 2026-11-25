@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>y-trix demo</title>
+<link rel="stylesheet" href="/node_modules/trix/dist/trix.css">
+<style>
+  body { font: 14px system-ui, sans-serif; margin: 16px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .peer { flex: 1 1 420px; min-width: 0; }
+  .controls { margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  trix-editor { min-height: 240px; }
+</style>
+</head>
+<body>
+<div class="controls">
+  <strong>y-trix</strong>
+  <label><input type="checkbox" id="online" checked> online</label>
+  <label>delay ms <input type="number" id="delay" value="0" style="width:60px"></label>
+  <button id="join">add late joiner</button>
+  
+</div>
+<div class="row" id="peers"></div>
+<script type="module" src="./dist/main.js"></script>
+</body>
+</html>

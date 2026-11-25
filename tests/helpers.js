@@ -1,0 +1,75 @@
+import { expect } from '@playwright/test'
+
+export async function open (page, query = '') {
+  page.on('console', (m) => { if (m.type() === 'warning' || m.type() === 'error') console.log(`[browser ${m.type()}]`, m.text()) })
+  page.on('pageerror', (e) => console.log('[pageerror]', e.message))
+  await page.goto('/demo/index.html' + query)
+  await page.waitForFunction(() => window.ytDemo && window.ytDemo.peers.length >= 2)
+  await page.evaluate(() => window.ytDemo.ready)
+}
+
+/**
+ * Peer i's document, normalized: blocks with their attributes and the text as
+ * runs of equal attributes (how Trix happens to split pieces is not compared).
+ * Attachments compare by attributes.
+ */
+export const docJSON = (page, i) => page.evaluate((i) => {
+  const norm = (document) => JSON.stringify(document.getBlocks().map((b) => {
+    const runs = []
+    for (const p of b.text.getPieces()) {
+      const v = p.attachment ? { att: p.attachment.getAttributes() } : p.toString()
+      const a = JSON.stringify(p.getAttributes())
+      const last = runs[runs.length - 1]
+      if (typeof v === 'string' && last && typeof last[0] === 'string' && last[1] === a) last[0] += v
+      else runs.push([v, a])
+    }
+    return [b.attributes, b.htmlAttributes, runs]
+  }))
+  window.ytNorm = norm
+  return norm(window.ytDemo.peers[i].editor.getDocument())
+}, i)
+export const html = (page, i) => page.evaluate((i) => window.ytDemo.peers[i].element.innerHTML, i)
+export const text = (page, i) => page.evaluate((i) => window.ytDemo.peers[i].editor.getDocument().toString(), i)
+
+/** Focus peer i and put the caret at document position pos ('end' allowed). */
+export async function caret (page, i, pos) {
+  const id = await page.evaluate((i) => window.ytDemo.peers[i].id, i)
+  await page.locator('#' + id).focus()
+  // Trix finishes focusing asynchronously and may place the caret itself, so
+  // set the range until it sticks across a frame.
+  await page.evaluate(async ({ i, pos }) => {
+    const { editor, element } = window.ytDemo.peers[i]
+    const frame = () => new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)))
+    for (let tries = 0; tries < 10; tries++) {
+      const len = editor.getDocument().getLength() - 1
+      const p = pos === 'end' ? len : Math.min(pos, len)
+      editor.setSelectedRange([p, p])
+      await frame()
+      const r = editor.getSelectedRange()
+      if (r && r[0] === p && r[1] === p && element.contains(getSelection().anchorNode)) return
+    }
+    throw new Error('caret did not stick')
+  }, { i, pos })
+}
+
+/** Each peer's Trix document equals its Y.Text read back as a document. */
+export const consistent = (page) => page.evaluate(() => window.ytDemo.peers.map((p) => {
+  const b = p.binding
+  const fromY = new window.Trix.Document(b.runsToBlocks(p.doc.getText('trix').toDelta().map((op) =>
+    typeof op.insert === 'string' ? { str: op.insert, attrs: op.attributes || {} } : { embed: op.insert, attrs: op.attributes || {} })))
+  return window.ytNorm(fromY) === window.ytNorm(p.editor.getDocument()) && p.doc.getText('trix').length === p.editor.getDocument().getLength()
+}))
+
+export async function converge (page, n = 2, timeout = 5000) {
+  await expect.poll(async () => {
+    const all = []
+    for (let i = 0; i < n; i++) all.push(await docJSON(page, i))
+    return all.every((h) => h === all[0])
+  }, { timeout }).toBe(true).catch(async (e) => {
+    for (let i = 0; i < n; i++) console.log(`peer ${i}:`, await text(page, i), await docJSON(page, i), await page.evaluate((i) => JSON.stringify(window.ytDemo.peers[i].doc.getText('trix').toDelta()), i))
+    throw e
+  })
+  await docJSON(page, 0)
+  expect(await consistent(page)).toEqual(new Array(n).fill(true))
+  return text(page, 0)
+}
