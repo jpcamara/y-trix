@@ -20,6 +20,10 @@ element.addEventListener('trix-initialize', () => {
 })
 ```
 
+The fourth argument is options: `captureTimeout` (the pause, in ms, that
+ends an undo step; 500), `Trix` (the Trix object, if it is not the global
+one) and `debug` (the self-check described under Demo and tests).
+
 ## Data model
 
 One `Y.Text` for the whole document, in the shape of Trix's own model. Trix
@@ -46,7 +50,10 @@ concurrent edits. Changing a block's attributes formats one character.
 - Local changes: `Composition#setDocument` is wrapped, so every change
   reaches Yjs synchronously. Trix documents are immutable and unchanged blocks
   keep their identity, so only the changed blocks are diffed (a caret-hinted
-  LCS text diff, then attribute runs).
+  LCS text diff, then attribute runs). A format written to Y does not
+  always land as written, so after a write that deleted, formatted or
+  replaced an embed the binding reads those blocks back from Y and shows
+  what Y says.
 - Remote changes: only the blocks the Y event touches are rebuilt; other
   Block objects are reused, so Trix re-renders only those. The caret is
   carried through the delta. If this editor is not focused, the page selection
@@ -76,7 +83,7 @@ concurrent edits. Changing a block's attributes formats one character.
   remote change arrives the binding deselects it, unless the user is typing
   its caption, so that other people's changes show.
 - Remote carets and selections are drawn in an overlay appended to
-  `document.body`.
+  `document.body`, at most once per animation frame.
 - Attachments keep their Trix `Attachment` object across remote rebuilds.
   An attribute change made in place (an upload finishing) is shared as a
   new embed.
@@ -91,8 +98,9 @@ binding treats it as untrusted. Before it builds a Trix document from Y it
 keeps only the text and block attributes Trix is configured for, drops
 `javascript:` and other script URLs from links and attachments, checks the
 types of attachment attributes, shows an embed that is not an attachment as
-`\ufffd`, and deletes the `"\r"` of a `"\r\n"` (Trix would drop it and its positions would no longer match Y). A failure
-while applying a remote change is logged and the editor is redrawn from Y.
+`\ufffd`, and deletes the `"\r"` of a `"\r\n"` (Trix would drop it and its
+positions would no longer match Y). A failure while applying a remote change
+is logged and the editor is redrawn from Y.
 
 The HTML in a content attachment is sanitized by Trix itself, which older
 releases did not do: Trix 2.0 runs script found there. That is why the peer
@@ -107,13 +115,19 @@ node demo/server.js          # http://localhost:5175/ (run `npm run build:demo` 
 ```
 
 The demo shows two editors with their own `Y.Doc`s connected in the page
-(online toggle, delay, "add late joiner").
+(online toggle, delay, "add late joiner"). `?debug` turns the binding's
+self-check on.
 
 Tests run in Chromium, WebKit and Firefox; `BROWSERS=chromium,webkit` picks
 engines. On macOS the config starts Firefox with a stand-in home folder,
 because macOS 27 denies it its usual app-data folder. The `chromium-trix2.1.15`
 project reruns the sync and security tests against the oldest supported
 Trix (`?trix=2.1.15` on the demo page).
+
+GitHub Actions is switched off for this repository for now (the workflow
+is disabled; private repositories pay for the minutes). Run the tests
+locally. `.github/workflows/test.yml` lists the fuzz runs that count as
+the full check.
 
 `tests/provider.spec.js` runs the binding through the real providers, one
 editor per browser context: `y-websocket` (two browsers, offline edits and
@@ -139,8 +153,10 @@ emoji. `WIDE_SEEDS=1,2,3 WIDE_OPS=160 npx playwright test wide` picks runs.
 
 `WIDE_KEYS=1` adds what only the keyboard and the clipboard do: cut, paste
 and drop events with clipboard data, pasted files, Delete, Tab, word
-delete, arrow keys, select-all and type. `WIDE_CHAOS=1` gives it a bad network: updates arrive late and out of order,
-some twice, some never until the next full sync, and some merged into one.
+delete, arrow keys, select-all and type. `WIDE_CHAOS=1` gives it a bad network: updates arrive
+late and out of order, some twice, some never until the next full sync, and
+some merged into one. `tests/ime.spec.js` drives real compositions through
+the DevTools protocol (Chromium only) while remote changes arrive.
 `tests/lifecycle.spec.js` covers the editor and the binding coming and
 going: the element hidden, disabled, taken out of the page and put back, a
 whole document loaded over everything, a binding destroyed and made again,
@@ -162,7 +178,7 @@ around each other, nobody deleting anything, on a bad network with offline
 spells, and holds every character typed to being in the document exactly
 once at the end (`KEEP_SEEDS=1,2,3 KEEP_OPS=150`).
 
-`tests/odd.spec.js` writes about sixty odd things into Y one at a time
+`tests/odd.spec.js` writes 56 odd things into Y one at a time
 (values of the wrong type, names like `constructor`, control characters,
 half an emoji) and types next to each.
 
@@ -175,7 +191,7 @@ binding compare its editor with Y after every step and log the first step
 that leaves them different, with the steps before it (slow; for tests).
 `DEBUG_SYNC=1` turns it on for every test and fails the test on a report;
 `STRICT=1` also fails the two fuzzes if the settle check (see Known
-problems) ever has to redraw.
+problems) ever has to redraw. `SLOW=6` slows Chromium's CPU six times.
 
 ## Known problems
 
@@ -187,8 +203,9 @@ problems) ever has to redraw.
   does not always leave a format as it was written). A third turned up
   later and is fixed too: a format marker that Yjs deletes as redundant
   changes what a character reads as, in a change event that says nothing
-  changed. It has not fired in the fuzz runs since. If it does fire, that editor was wrong until
-  then, and an edit made in that moment can have landed in the wrong place.
+  changed. It has not fired in the fuzz runs since. If it does fire, that
+  editor was wrong until then, and an edit made in that moment can have
+  landed in the wrong place.
 - Trix moves attachments marked as a gallery into a block of their own.
   The binding lets it do that only as part of a local edit. A merge can
   leave gallery attachments inside a text block, and they stay there, shown
@@ -205,7 +222,9 @@ problems) ever has to redraw.
   get the same result. The binding treats block attributes on anything but a
   block break as noise.
 - A file attachment is shared before it is uploaded, without its file. Other
-  peers see it once the app's upload handler sets `url`.
+  peers see it once the app's upload handler sets `url`. Until then the
+  editor that added it saves it with Trix's pending-upload marker and the
+  others do not.
 - Yjs undo has two open bugs with nested types, yjs/yjs#823 (peers can
   diverge after undo) and yjs/yjs#809 (undo can throw). A single flat
   `Y.Text` does not seem to reach them: `node notes/yjs-undo-text.mjs` fuzzes
