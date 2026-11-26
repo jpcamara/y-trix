@@ -1,25 +1,32 @@
 # y-trix
 
-A [Yjs](https://yjs.dev) binding for the [Trix](https://trix-editor.org)
-editor: several people edit one Trix document at once, see each other's
-carets and selections, and undo only their own changes. It works with any
-Yjs provider; it is tested with y-websocket and y-indexeddb.
+Collaborative editing for the [Trix](https://trix-editor.org) editor, built
+on [Yjs](https://yjs.dev).
 
-Status: new. It is tested in Chromium, WebKit and
-Firefox against Trix 2.1.19 and 2.1.15 (the oldest supported), with fuzzers that hold every editor
-to showing the same document; see [Known limitations](#known-limitations)
-for what is still open.
+- Several people edit the same Trix document at once, and everyone ends up
+  with the same content.
+- Each person sees the others' carets and selections.
+- Undo and redo only take back your own changes.
+- It works with any Yjs provider (y-websocket, y-indexeddb, your own).
+
+There is a live demo at [yrby.dev/demos/trix](https://yrby.dev/demos/trix):
+open it in two windows.
 
 ## Install
 
 ```sh
-npm install y-trix yjs y-protocols trix
+npm install y-trix trix yjs y-protocols
 ```
 
 `trix` (2.1.15 or later), `yjs` (13.6) and `y-protocols` are peer
-dependencies. No Trix code is bundled. TypeScript types are included.
+dependencies, so you choose their versions. TypeScript types are included.
 
-## Use
+## Quick start
+
+```html
+<link rel="stylesheet" href="https://unpkg.com/trix@2/dist/trix.css">
+<trix-editor></trix-editor>
+```
 
 ```js
 import 'trix'
@@ -28,255 +35,189 @@ import { WebsocketProvider } from 'y-websocket'
 import { TrixBinding } from 'y-trix'
 
 const doc = new Y.Doc()
-const provider = new WebsocketProvider('wss://example.com', 'room', doc)
+const provider = new WebsocketProvider('wss://your-server.example', 'room-name', doc)
+
+// Who this person is, for the caret everyone else sees.
 provider.awareness.setLocalStateField('user', { name: 'Alice', color: '#e6194b' })
 
-// a <trix-editor> is ready once it has fired trix-initialize
-let binding
-document.querySelector('trix-editor').addEventListener('trix-initialize', (event) => {
-  binding = new TrixBinding(doc.getText('trix'), event.target, provider.awareness)
-})
+const binding = new TrixBinding(
+  doc.getText('trix'),                    // where the document lives
+  document.querySelector('trix-editor'),  // the editor to bind
+  provider.awareness                      // optional: carets and selections
+)
+```
 
-// later
+That is all of it. Type in the editor and it is written to the `Y.Text`;
+changes from other people show up in the editor.
+
+When you are done with the editor:
+
+```js
 binding.destroy()
 ```
 
-If the editor initialised before your code runs, create the binding
-straight away.
-
-The document lives in the `Y.Text` you pass in. Use one `Y.Text` per
-editor, and do not write to it in another format: the binding reads it as
-described under Data model.
+## API
 
 ### `new TrixBinding(ytext, element, awareness?, options?)`
 
-- `ytext`: a `Y.Text` of a `Y.Doc`.
-- `element`: a `<trix-editor>` that has fired `trix-initialize`.
-- `awareness`: optional. With it, the local selection is published in the
-  `cursor` field and other users' carets and selections are drawn, named
-  and coloured by each user's `user: { name, color }` field.
-- `options.captureTimeout`: the pause, in ms, that ends an undo step (500).
-- `options.Trix`: the Trix object, if it is not the global one.
-- `options.debug`: the self-check described under Development.
+| Argument | |
+|---|---|
+| `ytext` | A `Y.Text`. The whole document is stored in it. Use one per editor, and let nothing else write to it. |
+| `element` | A `<trix-editor>` element. It does not have to be ready yet: if Trix has not set it up, the binding attaches when it has. |
+| `awareness` | Optional. A y-protocols `Awareness` (every provider has one). Without it there are no shared carets. |
+| `options` | Optional, see below. |
 
-`binding.destroy()` takes the binding off the editor and gives Trix its
-own undo back; the editor keeps its content. `binding.undoManager` is the
-`Y.UndoManager` behind `editor.undo()` and `editor.redo()`.
+| Option | Default | |
+|---|---|---|
+| `undoManager` | a new one | Your own `Y.UndoManager`, for instance one shared by several editors. The binding adds itself to its tracked origins. You destroy it. |
+| `captureTimeout` | `500` | How long a pause, in milliseconds, ends an undo step. Ignored if you pass `undoManager`. |
+| `cursors` | `true` | `false` stops the binding drawing other people's carets. Your own selection is still published, so you can draw them yourself. |
+| `attachments` | `true` | `false` refuses files and does not show attachments that are in the document. See [Attachments](#attachments). |
+| `Trix` | `globalThis.Trix` | The Trix object, if your setup does not put it on the global. `import 'trix'` does. |
 
-## Data model
+### `binding.ready`
 
-One `Y.Text` for the whole document, in the shape of Trix's own model. Trix
-documents are blocks of attributed pieces, each block ending in a `"\n"` piece
-marked `blockBreak`, and Trix positions count every character, breaks
-included. So:
+A promise that resolves with the binding once it is attached to the editor.
+That is immediately for an editor Trix has already set up, and after
+`trix-initialize` otherwise.
 
-- string pieces are Y text with their attributes (`bold`, `href`, ...),
-- an attachment is a one-character embed `{ attachment: {...} }` with the
-  piece's attributes (`caption`, `presentation`),
-- a block break is a `"\n"` formatted `{ blockBreak: true, block?, html? }`
-  with the block's attributes (`["quote", "bulletList", "bullet"]`) and HTML
-  attributes. A `"\n"` without `blockBreak` is a soft line break.
+### `binding.undoManager`
 
-Why not a `Y.Array` of blocks, each with its own `Y.Text`? A Trix position
-is a Y index, so selections, relative positions and remote carets need no
-mapping. Splitting a block (Enter) and merging two (Backspace) are
-one-character inserts and deletes, so text never moves between Y types.
-With per-block types a merge would move text between them and lose
-concurrent edits. Changing a block's attributes formats one character.
+The `Y.UndoManager` behind `element.editor.undo()` and `redo()`, the toolbar
+buttons and the keyboard shortcuts. It is available once `ready` resolves.
 
-## How it works
+### `binding.destroy()`
 
-- Local changes: `Composition#setDocument` is wrapped, so every change
-  reaches Yjs synchronously. Trix documents are immutable and unchanged blocks
-  keep their identity, so only the changed blocks are diffed (a caret-hinted
-  LCS text diff, then attribute runs). A format written to Y does not
-  always land as written, so after a write that deleted, formatted or
-  replaced an embed the binding reads those blocks back from Y and shows
-  what Y says.
-- Remote changes: only the blocks the Y event touches are rebuilt; other
-  Block objects are reused, so Trix re-renders only those. The caret is
-  carried through the delta. If this editor is not focused, the page selection
-  and focus are put back after Trix renders, because Trix's render clears the
-  window selection and can move it into this editor.
-- Undo: `editor.undo/redo/canUndo/canRedo` use a `Y.UndoManager` that tracks
-  only this binding; Trix's own undo entries are dropped. Steps end where
-  Trix's own would (it says before each change whether it is more of the
-  same typing or something new), and also after a pause of `captureTimeout`
-  (500 ms). A composition is one step however long it takes: by the
-  pause alone, undo after a slow one brought the half-typed text back.
-- Enter: Trix renders an Enter on the next animation frame, and a key that
-  arrives before that frame lands in the wrong place (plain Trix does this
-  too; it renders at once only on iOS). The binding makes Trix render as soon
-  as the browser has finished the Enter.
-- Input methods: while a composition is in progress (Japanese, Chinese,
-  Korean, most Android typing) any render by Trix would end it and commit
-  the half-typed text. The binding keeps a second `Y.Doc` that holds exactly
-  what the editor shows. During a composition that shadow stops following
-  the real doc, local changes are written to it and passed on, and remote
-  changes are shown when the composition ends. The shadow is created at the
-  first composition, so it costs nothing until an input method is used.
-- Emoji: positions are UTF-16 offsets, as in Trix, and the API allows an
-  edit between the two halves of an emoji (a caret cannot get there). Yjs
-  cannot send half a pair, so the binding writes U+FFFD for each half and
-  shows that here too.
-- Trix does not redraw while an attachment is selected for editing. When a
-  remote change arrives the binding deselects it, unless the user is typing
-  its caption, so that other people's changes show.
-- Remote carets and selections are drawn in an overlay appended to
-  `document.body`, at most once per animation frame.
-- Attachments keep their Trix `Attachment` object across remote rebuilds.
-  An attribute change made in place (an upload finishing) is shared as a
-  new embed.
-- Cost at 2,000 blocks: about 0.15 ms of binding work per local change.
-  A remote change costs about what a local keystroke costs (about 18 ms,
-  nearly all Trix's own render).
+Detaches the binding and gives Trix its own undo back. The editor keeps the
+content it has. Safe to call more than once.
 
-## Untrusted content
+## Guides
 
-What a peer puts in the Y doc is shown in everyone else's editor, so the
-binding treats it as untrusted. Before it builds a Trix document from Y it
-keeps only the text and block attributes Trix is configured for, drops
-`javascript:` and other script URLs from links and attachments, checks the
-types of attachment attributes, shows an embed that is not an attachment as
-`\ufffd`, and deletes the `"\r"` of a `"\r\n"` (Trix would drop it and its
-positions would no longer match Y). A failure while applying a remote change
-is logged and the editor is redrawn from Y.
+### Starting with existing content
 
-The HTML in a content attachment is sanitized by Trix itself, which older
-releases did not do: Trix 2.0 runs script found there. That is why the peer
-dependency is Trix 2.1.15 or later, and the binding warns on anything older.
+When the binding attaches, the shared document wins if it has anything in
+it. If it is empty, the binding copies in whatever the editor holds.
 
-## Development
+That second case needs care. If two people open an editor that both start
+with the same saved HTML, and neither has received the shared document yet,
+both copy it in and the content appears twice. Two ways to avoid it:
 
-```sh
-npm install
-npm test                     # builds demo/dist and runs Playwright
-node demo/server.js          # http://localhost:5175/ (run `npm run build:demo` first)
+- **Wait for the first sync, then bind.** By then the shared document has
+  whatever anyone else wrote, and only the very first person seeds it.
+
+  ```js
+  provider.once('sync', () => {
+    new TrixBinding(doc.getText('trix'), element, provider.awareness)
+  })
+  ```
+
+- **Seed on the server**, or in one place, so that browsers never start from
+  an empty shared document.
+
+### Saving, and Rails with Action Text
+
+Trix keeps its hidden form input up to date as usual, including after other
+people's changes. So a normal form submit still sends the current HTML, and
+Action Text needs no changes: whoever saves, saves what everyone sees.
+
+There is no server-side renderer in this package. The HTML comes from a
+browser. If you need the content on a server without one, you can read the
+plain text from the `Y.Text`; see
+[the document format](docs/how-it-works.md#the-document-format).
+
+### Attachments
+
+Attachments are shared like any other content, including their captions.
+
+- **Uploads work the way they do in plain Trix.** Listen for
+  `trix-attachment-add`, upload `event.attachment.file`, and call
+  `event.attachment.setAttributes({ url, href })` when it is done. The
+  binding shares the attributes when you set them. Check that
+  `attachment.file` exists before uploading, as Trix's own example does:
+  everyone's editor fires the event, and only the person who added the file
+  has it.
+- **Until the upload finishes**, other people see the attachment without its
+  file.
+- **To switch attachments off**, pass `{ attachments: false }`. Files are
+  refused, and an attachment that is already in the document shows as a
+  placeholder character in that editor.
+
+### Styling the carets
+
+Other people's carets are drawn in a layer appended to `document.body`:
+
+```html
+<div class="y-trix-cursors">
+  <div class="y-trix-selection"></div>   <!-- one per line of a selection -->
+  <div class="y-trix-caret">
+    <div class="y-trix-caret-label">Alice</div>
+  </div>
+</div>
 ```
 
-The demo shows two editors with their own `Y.Doc`s connected in the page
-(online toggle, delay, "add late joiner"). `?debug` turns the binding's
-self-check on.
+The name and colour come from each person's `user` awareness field,
+`{ name, color }`. The colour is also set as `--y-trix-color` on the caret
+and the selection. Position and colour are inline styles, so a rule that
+changes how they look needs `!important`:
 
-Tests run in Chromium, WebKit and Firefox; `BROWSERS=chromium,webkit` picks
-engines. On macOS the config starts Firefox with a stand-in home folder,
-because macOS 27 denies it its usual app-data folder. The `chromium-trix2.1.15`
-project reruns the sync and security tests against the oldest supported
-Trix (`?trix=2.1.15` on the demo page).
+```css
+.y-trix-caret-label { font: 11px system-ui !important; border-radius: 4px !important; }
+```
 
-`.github/workflows/test.yml` runs the suite and the fuzzes below on every
-pull request.
+To draw them entirely your own way, pass `{ cursors: false }` and read the
+`cursor` field of each awareness state: `{ anchor, head }`, both Yjs
+relative positions into the `Y.Text`.
 
-`tests/provider.spec.js` runs the binding through the real providers, one
-editor per browser context: `y-websocket` (two browsers, offline edits and
-reconnect, a late joiner after everyone left) and `y-indexeddb` (reload).
-The y-websocket tests run against two servers: `@y/websocket-server` 0.1.1,
-the last release on Yjs 13, with LevelDB persistence, and 0.1.5, the latest,
-which runs Yjs 14 inside and speaks the same protocol. 0.1.5 needs
-`@y/protocols` pinned to 1.0.6-1 (see `overrides` in package.json), or it
-loads two copies of Yjs and fails on every update. Yjs 14 itself (`@y/y`)
-is a release candidate with a different type API and is not supported.
-The demo page is `?mode=yws&room=r&peer=0` (`&persist` adds y-indexeddb);
-start a
-server with `PORT=5185 node node_modules/y-websocket-server-13/src/server.js`.
+### Undo
 
-`node demo/swarm.mjs` (see its header) runs four separate browsers, mixing
-Chromium, WebKit and Firefox, that edit one document at random through
-y-websocket with offline spells and undo, then checks that all of them and
-a late joiner hold the same document.
+`element.editor.undo()`, the toolbar buttons and the keyboard shortcuts all
+go through a `Y.UndoManager` that tracks only this editor's changes. Undo
+steps end where Trix's own would, and a whole input-method composition
+(Japanese, Chinese, Korean, most Android keyboards) is one step.
 
-`tests/wide.spec.js` is a wider fuzz with three editors: attachments,
-pasted HTML, nesting, undo and redo, offline spells, and positions inside
-emoji. `WIDE_SEEDS=1,2,3 WIDE_OPS=160 npx playwright test wide` picks runs.
+### Content from other people is untrusted
 
-`WIDE_KEYS=1` adds what only the keyboard and the clipboard do: cut, paste
-and drop events with clipboard data, pasted files, Delete, Tab, word
-delete, arrow keys, select-all and type. `WIDE_CHAOS=1` gives it a bad network: updates arrive
-late and out of order, some twice, some never until the next full sync, and
-some merged into one. `tests/ime.spec.js` drives real compositions through
-the DevTools protocol (Chromium only) while remote changes arrive.
-`tests/lifecycle.spec.js` covers the editor and the binding coming and
-going: the element hidden, disabled, taken out of the page and put back, a
-whole document loaded over everything, a binding destroyed and made again,
-two editors on one `Y.Doc`.
+Whatever is in the shared document ends up in everyone's editor, so the
+binding checks it first: it keeps only the formatting Trix is configured
+for, drops `javascript:` and similar URLs, and validates attachments. Trix
+sanitises attachment HTML itself, and 2.1.15 is the oldest release without
+a published XSS advisory, which is why older versions are not supported.
+Details are in [how it works](docs/how-it-works.md#untrusted-content).
 
-Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
-(`FUZZ_NO_UNDO=1` drops undo from the op mix).
+## Limitations
 
-`tests/caret.spec.js` holds one user's caret (or selection) to staying with
-its text while two others edit at random: after each of their edits it has
-to be where a Yjs relative position taken beforehand says it is.
+- **Attachment galleries after a merge.** Trix groups gallery images into
+  their own block. If two people's edits merge so that gallery images land
+  inside a text block, they stay inline until someone edits the document.
+- **A file is visible to others before it is uploaded**, without its
+  content, until your upload handler sets its `url`.
+- **Positions inside an emoji.** Another program writing to the same
+  `Y.Text` at a position between the two halves of an emoji can leave
+  documents unequal. The binding never does this itself.
+- **Other tools writing to the document.** The binding expects to be the
+  only writer of its `Y.Text`. It tolerates and cleans up most things, but a
+  document written in another format is not supported.
 
-`tests/undo.spec.js` has one user edit at random and then undo everything
-while two others put in numbered words: every word has to be there
-afterwards, and nothing the first user typed may be left.
+The full list, with the reasons, is in
+[Limits of the approach](docs/how-it-works.md#limits-of-the-approach).
 
-`tests/keep.spec.js` has three users type and restructure the document
-around each other, nobody deleting anything, on a bad network with offline
-spells, and holds every character typed to being in the document exactly
-once at the end (`KEEP_SEEDS=1,2,3 KEEP_OPS=150`).
+## Tested with
 
-`tests/odd.spec.js` writes 56 odd things into Y one at a time
-(values of the wrong type, names like `constructor`, control characters,
-half an emoji) and types next to each.
+Trix 2.1.19 and 2.1.15, in Chromium, Firefox and WebKit. The test suite
+includes fuzzers that hold every editor to showing the same document under
+random edits, lost and reordered network updates, and input-method typing.
 
-`tests/break.spec.js` writes shapes Trix would never make straight into Y
-from three editors while one of them types (`BREAK_SEEDS=1,2,3
-BREAK_ROUNDS=40`).
+## More
 
-`new TrixBinding(ytext, element, awareness, { debug: true })` makes the
-binding compare its editor with Y after every step and log the first step
-that leaves them different, with the steps before it (slow; for tests).
-`DEBUG_SYNC=1` turns it on for every test and fails the test on a report;
-`STRICT=1` also fails the two fuzzes if the settle check (see Known
-limitations) ever has to redraw. `SLOW=6` slows Chromium's CPU six times.
-
-## Known limitations
-
-- Changes are applied piece by piece. As a backstop, a quarter of a second
-  after the last change the binding compares the editor with Y read from
-  scratch and redraws it if they differ, logging what differed. It used to
-  fire about once in 100 runs of the wide fuzz. Both causes found are fixed
-  (Yjs leaves an embed that is not an object out of its change events, and
-  does not always leave a format as it was written). A third turned up
-  later and is fixed too: a format marker that Yjs deletes as redundant
-  changes what a character reads as, in a change event that says nothing
-  changed. It has not fired in the fuzz runs since. If it does fire, that
-  editor was wrong until then, and an edit made in that moment can have
-  landed in the wrong place.
-- Trix moves attachments marked as a gallery into a block of their own.
-  The binding lets it do that only as part of a local edit. A merge can
-  leave gallery attachments inside a text block, and they stay there, shown
-  inline, until someone edits the document.
-- Yjs itself: an insert, delete or format made through the Yjs API at a
-  position inside an emoji (between the two halves of a surrogate pair) can
-  leave two Y docs unequal. The binding never writes there, but another
-  client of the same document could. (Half an emoji inserted as text
-  is mended: the editors on that doc replace it with U+FFFD, which is what
-  every other doc received.)
-- Yjs formats a block break as a range around one character. Text inserted
-  concurrently right after that range can pick up the block attributes,
-  depending on client order, and undo can restore format markers. Both peers
-  get the same result. The binding treats block attributes on anything but a
-  block break as noise.
-- A file attachment is shared before it is uploaded, without its file. Other
-  peers see it once the app's upload handler sets `url`. Until then the
-  editor that added it saves it with Trix's pending-upload marker and the
-  others do not.
-- Yjs undo has two open bugs with nested types, yjs/yjs#823 (peers can
-  diverge after undo) and yjs/yjs#809 (undo can throw). A single flat
-  `Y.Text` does not seem to reach them: `node notes/yjs-undo-text.mjs` fuzzes
-  this data model in plain Yjs with undo and gets 0 divergences and 0
-  exceptions in 50,000 runs. The binding still catches an exception from
-  undo or redo and redraws the editor from Y.
-- Tested with Trix 2.1.19 in Chromium, WebKit and Firefox, and with Trix
-  2.1.15 in Chromium.
+- [How it works](docs/how-it-works.md): the document format, the binding,
+  and the limits of the approach.
+- [Working on y-trix](docs/development.md): the demo, the tests and the
+  fuzzers.
 
 ## Security
 
-Content from the shared document is treated as untrusted (see Untrusted
-content). If you find a way for one user to run code in, or break, another
-user's editor, please report it privately through
+If you find a way for one user to run code in, or break, another user's
+editor, please report it privately through
 [GitHub's vulnerability reporting](https://github.com/jpcamara/y-trix/security/advisories/new)
 and not in a public issue.
 

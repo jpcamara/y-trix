@@ -182,9 +182,13 @@ const cursorName = (user, clientID) => (user && typeof user.name === 'string' &&
 export class TrixBinding {
   /**
    * @param {Y.Text} ytext
-   * @param {HTMLElement} element a <trix-editor> that has fired trix-initialize
-   * @param {import('y-protocols/awareness').Awareness} [awareness]
-   * @param {{ captureTimeout?: number, Trix?: any, debug?: boolean }} [opts]
+   * @param {HTMLElement} element a <trix-editor>; one that Trix has not set
+   *   up yet is bound when it fires trix-initialize (see `ready`)
+   * @param {import('y-protocols/awareness').Awareness | null} [awareness]
+   * @param {{ captureTimeout?: number, undoManager?: Y.UndoManager, cursors?: boolean, attachments?: boolean, Trix?: any, debug?: boolean }} [opts]
+   *   undoManager: the app's own, in place of one made here.
+   *   cursors: false leaves the other users' carets undrawn.
+   *   attachments: false refuses files and shows attachments as U+FFFD.
    *   debug: after every step, compare the editor with Y and report the
    *   first step that leaves them different (slow; for tests)
    */
@@ -192,10 +196,29 @@ export class TrixBinding {
     this.ytext = ytext
     this.doc = /** @type {Y.Doc} */ (ytext.doc)
     this.element = element
+    this.awareness = awareness || null
+    this.opts = opts
+    this.destroyed = false
+    this.attached = false
+    /** Resolves with the binding once it is on the editor. */
+    this.ready = new Promise((resolve) => { this.resolveReady = resolve })
+    // Trix sets a <trix-editor> up when it is put in the page and says so
+    // with trix-initialize. An element that is not set up yet (not in the
+    // page, or Trix not loaded) is bound when it is.
+    if (element.editorController) {
+      this.attach()
+    } else {
+      this.onInitialize = () => { if (!this.destroyed && !this.attached) this.attach() }
+      element.addEventListener('trix-initialize', this.onInitialize)
+    }
+  }
+
+  attach () {
+    const { ytext, element, opts } = this
+    this.attached = true
     this.editor = element.editor
     this.controller = element.editorController
     this.composition = this.editor.composition
-    this.awareness = awareness || null
     const Trix = opts.Trix || globalThis.Trix
     this.T = Trix.models || Trix
     this.config = Trix.config
@@ -269,7 +292,6 @@ export class TrixBinding {
     // text. So remote changes are held back until the composition is over.
     // See hold() and release().
     this.missingBreak = false
-    this.destroyed = false
     this.held = false
     this.splitPending = false
     this.composing = false
@@ -282,7 +304,7 @@ export class TrixBinding {
     const endComposeStep = () => {
       if (!this.composeStep) return
       this.composeStep = false
-      this.undoManager.captureTimeout = opts.captureTimeout ?? 500
+      this.undoManager.captureTimeout = this.capturePause
     }
     this.onCompositionStart = () => {
       this.composing = true
@@ -303,20 +325,35 @@ export class TrixBinding {
     element.addEventListener('compositionend', this.onCompositionEnd)
     element.addEventListener('blur', this.onBlur)
 
-    this.undoManager = new Y.UndoManager(ytext, {
+    // opts.undoManager: the app's own Y.UndoManager (one for several
+    // editors, say). It is told to track this binding, and is the app's to
+    // destroy.
+    this.ownsUndo = !opts.undoManager
+    this.undoManager = opts.undoManager || new Y.UndoManager(ytext, {
       trackedOrigins: new Set([this]),
       captureTimeout: opts.captureTimeout ?? 500
     })
-    this.undoManager.on('stack-item-added', (e) => {
+    if (!this.ownsUndo) this.undoManager.addTrackedOrigin(this)
+    this.capturePause = this.undoManager.captureTimeout
+    this.onStackAdded = (e) => {
       e.stackItem.meta.set('selection', this.selectionToRelative())
       this.updateActions()
-    })
-    this.undoManager.on('stack-item-popped', (e) => {
+    }
+    this.onStackPopped = (e) => {
       const sel = e.stackItem.meta.get('selection')
       if (sel && this.isFocused()) this.restoreSelection(sel)
       this.updateActions()
-    })
+    }
+    this.undoManager.on('stack-item-added', this.onStackAdded)
+    this.undoManager.on('stack-item-popped', this.onStackPopped)
     this.patchUndo()
+
+    // opts.attachments === false: this editor takes no files, and an
+    // attachment in the shared document (anyone can put one there) is shown
+    // as U+FFFD, like any other embed it does not show.
+    this.noAttachments = opts.attachments === false
+    this.onFileAccept = (event) => { if (this.noAttachments) event.preventDefault() }
+    element.addEventListener('trix-file-accept', this.onFileAccept)
 
     this.onYChange = (event, tr) => {
       if (this.destroyed) return
@@ -353,6 +390,7 @@ export class TrixBinding {
     }
 
     if (this.awareness) this.setupAwareness()
+    this.resolveReady(this)
   }
 
   isFocused () {
@@ -654,7 +692,7 @@ export class TrixBinding {
     }
     for (const r of runs) {
       if (r.embed) {
-        let attachment = cleanAttachment(r.embed)
+        let attachment = this.noAttachments ? null : cleanAttachment(r.embed)
         if (attachment === null) { addText(BAD_EMBED, {}); continue }
         flushText()
         // Trix keeps a link on an attachment in the attachment itself: given
@@ -1023,10 +1061,16 @@ export class TrixBinding {
 
   setupAwareness () {
     const doc = this.element.ownerDocument
-    this.overlay = doc.createElement('div')
-    this.overlay.setAttribute('data-y-trix-overlay', '')
-    this.overlay.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;pointer-events:none;z-index:10'
-    doc.body.appendChild(this.overlay)
+    // opts.cursors === false: this editor's selection is still published,
+    // and the other users' are not drawn (the app draws them, or nobody).
+    this.overlay = null
+    if (this.opts.cursors !== false) {
+      this.overlay = doc.createElement('div')
+      this.overlay.className = 'y-trix-cursors'
+      this.overlay.setAttribute('data-y-trix-overlay', '')
+      this.overlay.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;pointer-events:none;z-index:10'
+      doc.body.appendChild(this.overlay)
+    }
 
     this.onSelectionChange = () => {
       if (this.applyingRemote) return
@@ -1102,7 +1146,9 @@ export class TrixBinding {
           for (const rect of Array.from(r.getClientRects())) {
             if (rect.width === 0) continue
             const box = doc.createElement('div')
+            box.className = 'y-trix-selection'
             box.style.cssText = `position:absolute;left:${rect.left + sx}px;top:${rect.top + sy}px;width:${rect.width}px;height:${rect.height}px;background:${color};opacity:.25`
+            box.style.setProperty('--y-trix-color', color)
             this.overlay.appendChild(box)
           }
         }
@@ -1118,9 +1164,12 @@ export class TrixBinding {
       if (!rect) return
       const caret = doc.createElement('div')
       caret.setAttribute('data-y-caret', String(clientID))
+      caret.className = 'y-trix-caret'
       caret.style.cssText = `position:absolute;left:${rect.left + sx}px;top:${rect.top + sy}px;width:2px;height:${rect.height || 16}px;background:${color}`
+      caret.style.setProperty('--y-trix-color', color)
       const label = doc.createElement('div')
       label.textContent = cursorName(user, clientID)
+      label.className = 'y-trix-caret-label'
       label.style.cssText = `position:absolute;left:0;top:-14px;font:10px sans-serif;color:#fff;background:${color};padding:0 3px;white-space:nowrap;border-radius:2px;max-width:160px;overflow:hidden;text-overflow:ellipsis`
       caret.appendChild(label)
       this.overlay.appendChild(caret)
@@ -1131,8 +1180,16 @@ export class TrixBinding {
 
   destroy () {
     if (this.destroyed) return
+    if (!this.attached) {
+      // never got as far as the editor
+      this.destroyed = true
+      this.element.removeEventListener('trix-initialize', this.onInitialize)
+      return
+    }
     this.release()
     this.destroyed = true
+    if (this.onInitialize) this.element.removeEventListener('trix-initialize', this.onInitialize)
+    this.element.removeEventListener('trix-file-accept', this.onFileAccept)
     if (this.verifyTimer) clearTimeout(this.verifyTimer)
     this.element.removeEventListener('compositionstart', this.onCompositionStart)
     this.element.removeEventListener('compositionend', this.onCompositionEnd)
@@ -1144,7 +1201,14 @@ export class TrixBinding {
     this.element.removeEventListener('trix-attachment-edit', this.onAttachmentEdit)
     this.element.removeEventListener('input', this.onInput)
     Object.assign(this.editor, this.origUndo)
-    this.undoManager.destroy()
+    this.undoManager.off('stack-item-added', this.onStackAdded)
+    this.undoManager.off('stack-item-popped', this.onStackPopped)
+    if (this.ownsUndo) {
+      this.undoManager.destroy()
+    } else {
+      this.undoManager.captureTimeout = this.capturePause
+      this.undoManager.removeTrackedOrigin(this)
+    }
     if (this.awareness) {
       const doc = this.element.ownerDocument
       this.element.removeEventListener('trix-selection-change', this.onSelectionChange)
@@ -1154,7 +1218,7 @@ export class TrixBinding {
       doc.defaultView.removeEventListener('resize', this.onRender)
       doc.removeEventListener('scroll', this.onRender, true)
       if (this.awareness.getLocalState() !== null) this.awareness.setLocalStateField('cursor', null)
-      this.overlay.remove()
+      if (this.overlay) this.overlay.remove()
     }
   }
 }

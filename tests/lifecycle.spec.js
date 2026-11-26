@@ -150,3 +150,165 @@ test('trix: two editors that both start empty and type at once', async ({ page }
   expect(out).toContain('from A')
   expect(out).toContain('from B')
 })
+
+// ---- the options, and binding before the editor is ready ---------------------
+
+const twin = async (page, options, { early = false } = {}) => page.evaluate(async ({ options, early, debug }) => {
+  const p = window.ytDemo.peers[0]
+  const Y = window.ytDemo.Y
+  const wrap = document.createElement('div')
+  wrap.innerHTML = '<input type="hidden" id="twin-input"><trix-editor id="twin" input="twin-input"></trix-editor>'
+  const element = wrap.querySelector('trix-editor')
+  const initialized = new Promise((resolve) => element.addEventListener('trix-initialize', resolve, { once: true }))
+  const opts = { debug, ...options }
+  if (options.undoManager) opts.undoManager = window.sharedUndo = new Y.UndoManager(p.doc.getText('trix'), { trackedOrigins: new Set(['mine']) })
+  let binding
+  // early: bound before the element is in the page, so before Trix has set it up
+  if (early) binding = new window.ytDemo.TrixBinding(p.doc.getText('trix'), element, p.awareness, opts)
+  const before = early ? { attached: binding.attached, undo: binding.undoManager === undefined } : null
+  document.getElementById('peers').appendChild(wrap)
+  if (!early) { await initialized; binding = new window.ytDemo.TrixBinding(p.doc.getText('trix'), element, p.awareness, opts) }
+  const same = (await binding.ready) === binding
+  window.ytDemo.peers.push({ name: 'Twin', id: 'twin', doc: p.doc, awareness: p.awareness, element, editor: element.editor, binding })
+  return { before, same, attached: binding.attached }
+}, { options, early, debug: await page.evaluate(debug) })
+
+test('trix: a binding made before the editor is set up is on it once it is', async ({ page }) => {
+  await open(page)
+  const r = await twin(page, {}, { early: true })
+  expect(r).toEqual({ before: { attached: false, undo: true }, same: true, attached: true })
+  expect(await text(page, 2)).toContain('Hello')
+  await caret(page, 2, 0)
+  await page.keyboard.type('Early. ')
+  expect(await converge(page, 3)).toContain('Early. Hello')
+})
+
+test('trix: a binding destroyed before the editor is set up never binds', async ({ page }) => {
+  await open(page)
+  const r = await page.evaluate(async () => {
+    const p = window.ytDemo.peers[0]
+    const element = document.createElement('trix-editor')
+    const binding = new window.ytDemo.TrixBinding(p.doc.getText('trix'), element)
+    binding.destroy()
+    binding.destroy()
+    const initialized = new Promise((resolve) => element.addEventListener('trix-initialize', resolve, { once: true }))
+    document.getElementById('peers').appendChild(element)
+    await initialized
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    return { attached: binding.attached, text: element.editor.getDocument().toString() }
+  })
+  expect(r).toEqual({ attached: false, text: '\n' })
+})
+
+test('trix: the form input holds the HTML after other people\'s changes too', async ({ page }) => {
+  await open(page)
+  await twin(page, {})
+  await caret(page, 1, 0)
+  await page.keyboard.type('From Bob. ')
+  await converge(page, 3)
+  // the twin never had the focus: what its form would submit is what everyone sees
+  const value = await page.evaluate(() => document.getElementById('twin-input').value)
+  expect(value).toContain('From Bob. Hello')
+  expect(value).toMatch(/^<div>/)
+})
+
+test('trix: undo through an undo manager of the app\'s own', async ({ page }) => {
+  await open(page)
+  await twin(page, { undoManager: true })
+  await caret(page, 2, 0)
+  await page.keyboard.type('Mine. ')
+  await caret(page, 1, 0)
+  await page.keyboard.type('Bob. ')
+  await converge(page, 3)
+  const r = await page.evaluate(() => {
+    const b = window.ytDemo.peers[2].binding
+    const same = b.undoManager === window.sharedUndo
+    const can = window.ytDemo.peers[2].editor.canUndo()
+    window.sharedUndo.undo()
+    return { same, can }
+  })
+  expect(r).toEqual({ same: true, can: true })
+  const out = await converge(page, 3)
+  expect(out).not.toContain('Mine.')
+  expect(out).toContain('Bob. ')
+  // destroy leaves the app's undo manager alive, and no longer tracking this binding
+  const after = await page.evaluate(() => {
+    const b = window.ytDemo.peers[2].binding
+    b.destroy()
+    return { tracks: window.sharedUndo.trackedOrigins.has(b), still: window.sharedUndo.trackedOrigins.has('mine'), redo: window.sharedUndo.redoStack.length }
+  })
+  expect(after).toEqual({ tracks: false, still: true, redo: 1 })
+})
+
+test('trix: with cursors off the others\' carets are not drawn, and this one is still published', async ({ page }) => {
+  await open(page)
+  const carets = () => page.evaluate(() => document.querySelectorAll('[data-y-caret]').length)
+  await caret(page, 1, 3)
+  await page.waitForTimeout(150)
+  const before = await carets()
+  expect(before).toBeGreaterThan(0)
+  // (a second editor on Alice's doc and awareness, drawing nothing)
+  await twin(page, { cursors: false })
+  await caret(page, 1, 5)
+  await page.waitForTimeout(150)
+  expect(await carets()).toBe(before)
+  await caret(page, 2, 2)
+  await page.waitForTimeout(150)
+  expect(await page.evaluate(() => !!window.ytDemo.peers[0].awareness.getLocalState().cursor)).toBe(true)
+  // the classes to style them by
+  expect(await page.evaluate(() => [document.querySelector('.y-trix-cursors') !== null, document.querySelector('.y-trix-caret .y-trix-caret-label') !== null, document.querySelector('.y-trix-caret').style.getPropertyValue('--y-trix-color') !== ''])).toEqual([true, true, true])
+})
+
+test('trix: with attachments off a file is refused and an attachment from someone else is not shown', async ({ page }) => {
+  await open(page)
+  await twin(page, { attachments: false })
+  const r = await page.evaluate(async () => {
+    const [a, b, t] = window.ytDemo.peers
+    // Bob attaches something
+    b.element.focus()
+    b.editor.setSelectedRange([0, 0])
+    b.editor.insertAttachment(new window.Trix.Attachment({ content: '<em>card</em>' }))
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    const shown = { alice: a.editor.getDocument().getAttachments().length, bob: b.editor.getDocument().getAttachments().length, twin: t.editor.getDocument().getAttachments().length }
+    const first = t.editor.getDocument().toString()[0]
+    const lengths = [a, t].map((p) => p.editor.getDocument().getLength())
+    // and the twin is handed a file
+    t.editor.setSelectedRange([3, 3])
+    t.editor.insertFile(new File(['x'], 'x.txt', { type: 'text/plain' }))
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    return { shown, first, lengths, after: t.editor.getDocument().getAttachments().length, inY: a.doc.getText('trix').toDelta().filter((op) => typeof op.insert !== 'string').length }
+  })
+  expect(r.shown).toEqual({ alice: 1, bob: 1, twin: 0 })
+  expect(r.first).toBe('�')
+  expect(r.lengths[0]).toBe(r.lengths[1])
+  expect(r.after).toBe(0)
+  expect(r.inY).toBe(1)
+  // typing in the twin lands where it should for everyone
+  await caret(page, 2, 1)
+  await page.keyboard.type('X')
+  await page.waitForTimeout(300)
+  const texts = await page.evaluate(() => window.ytDemo.peers.map((p) => p.doc.getText('trix').toString().slice(0, 2)))
+  expect(texts[0]).toBe('XH')
+})
+
+test('trix: a binding made right after the editor is put in the page, before trix-initialize', async ({ page }) => {
+  await open(page)
+  const r = await page.evaluate(async (debug) => {
+    const p = window.ytDemo.peers[0]
+    const element = document.createElement('trix-editor')
+    element.id = 'twin'
+    let initialized = false
+    element.addEventListener('trix-initialize', () => { initialized = true }, { once: true })
+    document.getElementById('peers').appendChild(element)
+    const binding = new window.ytDemo.TrixBinding(p.doc.getText('trix'), element, null, { debug })
+    const at = { initialized, attached: binding.attached }
+    await binding.ready
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    window.ytDemo.peers.push({ name: 'Twin', id: 'twin', doc: p.doc, awareness: p.awareness, element, editor: element.editor, binding })
+    return { at, initialized, text: element.editor.getDocument().toString().slice(0, 5) }
+  }, await page.evaluate(debug))
+  expect(r).toEqual({ at: { initialized: false, attached: true }, initialized: true, text: 'Hello' })
+  await caret(page, 2, 0)
+  await page.keyboard.type('Now. ')
+  expect(await converge(page, 3)).toContain('Now. Hello')
+})
