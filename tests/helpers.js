@@ -9,6 +9,11 @@ export async function open (page, query = '') {
   if (process.env.DEBUG_SYNC) query += (query.includes('?') ? '&' : '?') + 'debug'
   const version = test.info().project.metadata?.trix
   if (version) query += (query.includes('?') ? '&' : '?') + 'trix=' + version
+  // SLOW=4 (Chromium only): a CPU four times slower, as on a small CI machine
+  if (process.env.SLOW && test.info().project.use.browserName === 'chromium') {
+    const cdp = await page.context().newCDPSession(page)
+    await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.SLOW) })
+  }
   await page.goto('/demo/index.html' + query)
   if (version) expect(await page.evaluate(() => window.Trix.VERSION)).toBe(version)
   await page.waitForFunction(() => window.ytDemo && window.ytDemo.peers.length >= 2)
