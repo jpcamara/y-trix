@@ -101,3 +101,24 @@ test('trix: gallery attachments left in a text block by a merge keep editor and 
   for (const [editor, y] of await lengths()) expect(editor).toBe(y)
   expect(await page.evaluate(() => window.ytDemo.peers[1].editor.getDocument().getBlocks().some((b) => b.attributes.includes('attachmentGallery')))).toBe(true)
 })
+
+// Trix moves a link on an attachment's piece into the attachment and reports
+// an edit. Each editor wrote that edit when the link arrived from someone
+// else, replacing the embed, so the attachment was there once per editor.
+test('trix: a link applied over an attachment by a peer does not duplicate it', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => window.ytDemo.addPeer())
+  const count = () => page.evaluate(() => window.ytDemo.peers.map((p) => [p.editor.getDocument().getAttachments().length, p.doc.getText('trix').toDelta().filter((op) => typeof op.insert !== 'string').length]))
+  await page.evaluate(() => {
+    const p = window.ytDemo.peers[1]
+    p.doc.transact(() => p.doc.getText('trix').insertEmbed(2, { attachment: { content: '<b>@m</b>', contentType: 'mention' } }, {}), 'a peer')
+  })
+  await converge(page, 3)
+  await page.evaluate(() => { const p = window.ytDemo.peers[1]; p.doc.transact(() => p.doc.getText('trix').format(1, 3, { href: 'https://example.com/2' }), 'a peer') })
+  await converge(page, 3)
+  expect(await count()).toEqual([[1, 1], [1, 1], [1, 1]])
+  await page.evaluate(() => { const p = window.ytDemo.peers[1]; p.doc.transact(() => p.doc.getText('trix').format(1, 3, { href: null }), 'a peer') })
+  await converge(page, 3)
+  expect(await count()).toEqual([[1, 1], [1, 1], [1, 1]])
+  expect(await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().getAttachments()[0].getAttributes().href)).toBeUndefined()
+})

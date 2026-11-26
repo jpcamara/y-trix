@@ -232,7 +232,8 @@ export class TrixBinding {
 
     // An attachment's attributes change in place (an upload finishing sets
     // url and href) without a new document.
-    this.onAttachmentEdit = (e) => this.syncAttachment(e.attachment.attachment || e.attachment)
+    // (an attachment that changes while a remote change is applied is not the user's edit)
+    this.onAttachmentEdit = (e) => { if (!this.applyingRemote) this.syncAttachment(e.attachment.attachment || e.attachment) }
     element.addEventListener('trix-attachment-edit', this.onAttachmentEdit)
 
     // Trix changes its document when Enter's beforeinput arrives, lets the
@@ -568,9 +569,19 @@ export class TrixBinding {
     }
     for (const r of runs) {
       if (r.embed) {
-        const attachment = cleanAttachment(r.embed)
+        let attachment = cleanAttachment(r.embed)
         if (attachment === null) { addText(BAD_EMBED, {}); continue }
         flushText()
+        // Trix keeps a link on an attachment in the attachment itself: given
+        // a piece with href, it moves the href over and says the attachment
+        // was edited. Every editor would then write that edit, replacing the
+        // embed, and the attachment would be there once per editor. So make
+        // the attachment that way to begin with.
+        const pieceAttrs = this.cleanTextAttrs(r.attrs, true)
+        if (typeof pieceAttrs.href === 'string') {
+          if (attachment.href === undefined) attachment = { ...attachment, href: pieceAttrs.href }
+          delete pieceAttrs.href
+        }
         let att = this.attachments.get(r.embed)
         // Attachments change in place, so a remembered one can be newer than
         // its embed (undo brings the old embed back). Then make one from the
@@ -579,7 +590,7 @@ export class TrixBinding {
           att = new Attachment(attachment)
           this.attachments.set(r.embed, att)
         }
-        pieces.push(new AttachmentPiece(att, this.cleanTextAttrs(r.attrs, true)))
+        pieces.push(new AttachmentPiece(att, pieceAttrs))
         continue
       }
       // Block attributes belong on block breaks only. Concurrent edits (and

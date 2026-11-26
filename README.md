@@ -144,12 +144,13 @@ BREAK_ROUNDS=40`).
 ## Known problems
 
 - Changes are applied piece by piece, and now and then that leaves the
-  editor showing something other than Y holds (about 2 runs in 120 of the
+  editor showing something other than Y holds (about 1 run in 100 of the
   wide fuzz). A quarter of a second after the last change the binding
   compares the editor with Y read from scratch and redraws it if they
-  differ, logging `the editor did not show what Y holds`. Until then that
-  editor is wrong, and an edit made in that moment can land in the wrong
-  place. The causes behind those runs are not found yet.
+  differ, logging what differed. Until then that editor is wrong, and an
+  edit made in that moment can land in the wrong place. The cases still
+  seen all involve an emoji that was cut in half: Y holds a U+FFFD that the
+  editor does not show. The cause is not found yet.
 - Trix moves attachments marked as a gallery into a block of their own.
   The binding lets it do that only as part of a local edit. A merge can
   leave gallery attachments inside a text block, and they stay there, shown
