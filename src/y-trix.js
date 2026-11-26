@@ -417,11 +417,14 @@ export class TrixBinding {
       const fixed = r.str.replace(LONE_SURROGATE, '\ufffd')
       if (fixed !== r.str) { r.str = fixed; split = true }
     }
+    this.wroteMore = false
     this.wdoc.transact(() => this.applyRuns(base, aRuns, bRuns, hint === undefined ? undefined : hint - base), this)
     // Yjs does not always leave a format as it was written (a block
     // attribute taken off a break can still be there afterwards). The
     // editor has to show what Y holds, so read the changed blocks back.
-    if (!split) {
+    // (Not after plain typing: an insert lands as it is written, and
+    // reading Y costs time in a long document.)
+    if (!split && this.wroteMore) {
       const mine = b.slice(p, b.length - s)
       const len = mine.reduce((n, block) => n + block.getLength(), 0)
       const theirs = this.runsToBlocks(sliceRuns(deltaRuns(this.wtext.toDelta()), base, base + len))
@@ -468,7 +471,7 @@ export class TrixBinding {
     // Text: right to left so earlier indices stay valid.
     for (let k = withB.length - 1; k >= 0; k--) {
       const { index, remove, insert, bIndex } = withB[k]
-      if (remove > 0) ytext.delete(base + index, remove)
+      if (remove > 0) { ytext.delete(base + index, remove); this.wroteMore = true }
       if (insert.length > 0) this.insertRuns(base + index, bRuns, bChars, bIndex, bIndex + insert.length)
     }
 
@@ -481,6 +484,7 @@ export class TrixBinding {
       if (!!ar.embed !== !!br.embed || (ar.embed && !equal(ar.embed, br.embed))) {
         ytext.delete(base + bk, 1)
         this.insertRuns(base + bk, bRuns, bChars, bk, bk + 1)
+        this.wroteMore = true
         k++
         continue
       }
@@ -491,6 +495,7 @@ export class TrixBinding {
       while (k + n < kept.length && kept[k + n][1] === bk + n && !aChars[kept[k + n][0]].embed && !bChars[bk + n].embed &&
         equal(attrPatch(aChars[kept[k + n][0]].attrs, bChars[bk + n].attrs), patch)) n++
       ytext.format(base + bk, n, patch)
+      this.wroteMore = true
       k += n
     }
   }
