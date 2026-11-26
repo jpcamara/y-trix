@@ -275,13 +275,30 @@ export class TrixBinding {
     this.composing = false
     this.shadow = null
     this.shadowText = null
-    this.onCompositionStart = () => { this.composing = true; this.hold() }
+    // A composition is one undo step, however long the user takes over it:
+    // undo takes the committed text out, and never brings back what was
+    // half-typed on the way. (Yjs would start a step after every pause.)
+    this.composeStep = false
+    const endComposeStep = () => {
+      if (!this.composeStep) return
+      this.composeStep = false
+      this.undoManager.captureTimeout = opts.captureTimeout ?? 500
+    }
+    this.onCompositionStart = () => {
+      this.composing = true
+      this.hold()
+      if (!this.composeStep) {
+        this.undoManager.stopCapturing()
+        this.composeStep = true
+        this.undoManager.captureTimeout = Infinity
+      }
+    }
     this.onCompositionEnd = () => {
       this.composing = false
       // after Trix (and Safari's late insertFromComposition) have finished
-      setTimeout(() => { if (!this.composing) this.release() }, 0)
+      setTimeout(() => { if (!this.composing) { this.release(); endComposeStep() } }, 0)
     }
-    this.onBlur = () => { if (!this.composing) this.release() }
+    this.onBlur = () => { if (!this.composing) { this.release(); endComposeStep() } }
     element.addEventListener('compositionstart', this.onCompositionStart)
     element.addEventListener('compositionend', this.onCompositionEnd)
     element.addEventListener('blur', this.onBlur)
@@ -977,7 +994,8 @@ export class TrixBinding {
     ed.recordUndoEntry = (description, { context, consolidatable } = {}) => {
       let key = null
       if (consolidatable) { try { key = JSON.stringify([description, context]) } catch (e) {} }
-      if (key === null || key !== this.lastUndoKey) this.undoManager.stopCapturing()
+      // (a composition is one step: see onCompositionStart)
+      if (!this.composeStep && (key === null || key !== this.lastUndoKey)) this.undoManager.stopCapturing()
       this.lastUndoKey = key
     }
   }

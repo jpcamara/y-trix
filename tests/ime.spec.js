@@ -110,3 +110,33 @@ for (const [what, change] of Object.entries(hard)) {
     })
   }
 }
+
+// A slow composition (the user looks through the candidates) is still one
+// undo step: undo takes the committed word out, and never brings half-typed
+// text back. Yjs alone starts a new step after every pause.
+test('trix: undo after a slow composition takes out the whole word', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'needs the DevTools protocol')
+  await open(page)
+  await caret(page, 0, 5)
+  await page.keyboard.type('X')
+  await page.waitForTimeout(700)
+  const cdp = await page.context().newCDPSession(page)
+  for (const s of ['n', 'に', 'にh', 'にほ', 'にほn', 'にほん']) {
+    await cdp.send('Input.imeSetComposition', { text: s, selectionStart: s.length, selectionEnd: s.length })
+    await page.waitForTimeout(350)
+  }
+  await page.waitForTimeout(400)
+  await cdp.send('Input.insertText', { text: '日本' })
+  await page.waitForTimeout(700)
+  expect(await converge(page)).toContain('HelloX日本 world.')
+  await page.evaluate(() => window.ytDemo.peers[0].editor.undo())
+  const once = await converge(page)
+  expect(once).not.toMatch(/に|ほ|ん|n world/)
+  expect(once).toContain('HelloX world.')
+  await page.evaluate(() => window.ytDemo.peers[0].editor.undo())
+  expect(await converge(page)).toContain('Hello world.')
+  await page.evaluate(() => { const ed = window.ytDemo.peers[0].editor; ed.redo(); ed.redo() })
+  const again = await converge(page)
+  expect(again).toContain('HelloX日本 world.')
+  expect(again).not.toMatch(/に|ほ|ん/)
+})

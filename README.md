@@ -63,7 +63,8 @@ concurrent edits. Changing a block's attributes formats one character.
   only this binding; Trix's own undo entries are dropped. Steps end where
   Trix's own would (it says before each change whether it is more of the
   same typing or something new), and also after a pause of `captureTimeout`
-  (500 ms).
+  (500 ms). A composition is one step however long it takes: by the
+  pause alone, undo after a slow one brought the half-typed text back.
 - Enter: Trix renders an Enter on the next animation frame, and a key that
   arrives before that frame lands in the wrong place (plain Trix does this
   too; it renders at once only on iOS). The binding makes Trix render as soon

@@ -33,5 +33,6 @@ test('trix perf: keystroke sync cost on a 2000-block doc', async ({ page }) => {
   await converge(page, 2, 60000)
   const remoteMs = await page.evaluate(() => window.restoreRemote())
   console.log('TRIX PERF', JSON.stringify({ load, localFlushMs: ms.toFixed(2), trixLocalInsertMs: (await page.evaluate(() => window.trixInsertMs)).toFixed(2), remoteApplyMs: remoteMs.toFixed(2) }))
-  expect(ms).toBeLessThan(5) // the binding's share of a local change
+  // (the binding's share of a local change; with DEBUG_SYNC=1 it checks itself after every step, which is slow)
+  if (!process.env.DEBUG_SYNC) expect(ms).toBeLessThan(5)
 })
