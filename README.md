@@ -134,7 +134,9 @@ a late joiner hold the same document.
 pasted HTML, nesting, undo and redo, offline spells, and positions inside
 emoji. `WIDE_SEEDS=1,2,3 WIDE_OPS=160 npx playwright test wide` picks runs.
 
-`WIDE_CHAOS=1` gives it a bad network: updates arrive late and out of order,
+`WIDE_KEYS=1` adds what only the keyboard and the clipboard do: cut, paste
+and drop events with clipboard data, pasted files, Delete, Tab, word
+delete, arrow keys, select-all and type. `WIDE_CHAOS=1` gives it a bad network: updates arrive late and out of order,
 some twice, some never until the next full sync, and some merged into one.
 `tests/lifecycle.spec.js` covers the editor and the binding coming and
 going: the element hidden, disabled, taken out of the page and put back, a

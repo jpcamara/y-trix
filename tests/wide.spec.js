@@ -20,6 +20,10 @@ for (const seed0 of (process.env.WIDE_SEEDS || '102,105').split(',').map(Number)
     let seed = seed0
     const rand = (n) => { seed = (seed * 16807) % 2147483647; return seed % n }
     const ops = ['type', 'type', 'enter', 'backspace', 'bold', 'italic', 'href', 'heading1', 'quote', 'code', 'bullet', 'number', 'indent', 'outdent', 'attachment', 'html', 'rangeDelete', 'undo', 'redo', 'offline']
+    // WIDE_KEYS=1 adds what only the keyboard and the clipboard do
+    if (process.env.WIDE_KEYS) ops.push('cut', 'cut', 'paste-event', 'paste-event', 'file-paste', 'drop', 'key-Delete', 'key-Shift+Enter', 'key-Tab', 'key-Shift+Tab', 'word-delete', 'key-ArrowUp', 'key-ArrowDown', 'key-Home', 'key-End', 'all-type', 'key-MOD+b', 'key-MOD+i', 'key-Shift+ArrowDown')
+    const MOD = process.platform === 'darwin' ? 'Meta' : 'Control'
+    const PASTES = ['<ul><li>a</li><li>b<ul><li>c</li></ul></li></ul>', '<div>one</div><div>two <em>three</em></div>', 'plain <b>bold</b> <span style="font-size: 18pt;">big</span>', '<blockquote>q</blockquote><h1>t</h1><pre>code\n  more</pre>', '<p>\u{1F600} <a href="https://example.com/p">link</a> <del>gone</del></p>', '<table><tr><td>x</td><td>y</td></tr></table>', '<img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=">']
     for (let k = 0; k < Number(process.env.WIDE_OPS || 160); k++) {
       const peer = rand(3)
       const len = await page.evaluate((i) => window.ytDemo.peers[i].editor.getDocument().getLength(), peer)
@@ -29,6 +33,41 @@ for (const seed0 of (process.env.WIDE_SEEDS || '102,105').split(',').map(Number)
       if (op === 'type') await page.keyboard.type(['x', 'yy ', '\u{1F600}', 'é'][rand(4)])
       else if (op === 'enter') await page.keyboard.press('Enter')
       else if (op === 'backspace') await page.keyboard.press('Backspace')
+      else if (op.startsWith('key-')) {
+        const focused = () => page.evaluate((i) => document.activeElement === window.ytDemo.peers[i].element, peer)
+        // (Tab outside a list leaves the editor, and the next key would press a button on the page)
+        if (!op.includes('Tab') || await page.evaluate((i) => { const e = window.ytDemo.peers[i].editor; return e.canIncreaseNestingLevel() || e.canDecreaseNestingLevel() }, peer)) await page.keyboard.press(op.slice(4).replace('MOD', MOD))
+        if (rand(2) && await focused()) await page.keyboard.type('k')
+      } else if (op === 'word-delete') await page.keyboard.press(`${MOD === 'Meta' ? 'Alt' : 'Control'}+Backspace`)
+      else if (op === 'all-type') { if (rand(5) === 0) { await page.keyboard.press(`${MOD}+a`); await page.keyboard.type('All') } } else if (op === 'cut') {
+        for (let n = 1 + rand(12); n > 0; n--) await page.keyboard.press('Shift+ArrowRight')
+        await page.keyboard.press(`${MOD}+x`)
+        await page.waitForTimeout(20)
+      } else if (op === 'paste-event' || op === 'drop' || op === 'file-paste') {
+        // the browser's own events, with clipboard data, as a real paste or drop sends them
+        await page.evaluate(({ i, html, plain, op }) => {
+          const el = window.ytDemo.peers[i].element
+          const data = new DataTransfer()
+          if (op === 'file-paste') data.items.add(new File(['hello'], 'note.txt', { type: 'text/plain' }))
+          else {
+            if (html !== null) data.setData('text/html', html)
+            data.setData('text/plain', plain)
+          }
+          try {
+            if (op === 'drop') {
+              const r = el.getBoundingClientRect()
+              el.dispatchEvent(new DragEvent('drop', { dataTransfer: data, bubbles: true, cancelable: true, clientX: r.left + 30, clientY: r.top + 20 }))
+            } else if (op === 'file-paste' || html === null) el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+            // (Trix takes pasted HTML from the beforeinput event)
+            else {
+              const event = new InputEvent('beforeinput', { inputType: 'insertFromPaste', dataTransfer: data, bubbles: true, cancelable: true })
+              // (WebKit does not let a script give the event its data, and Trix throws without it)
+              if (event.dataTransfer) el.dispatchEvent(event)
+            }
+          } catch (e) {}
+        }, { i: peer, html: rand(3) === 0 ? null : PASTES[rand(PASTES.length)], plain: ['plain text', 'two\nlines', 'three\n\nparas\nhere', 'https://example.com/pasted'][rand(4)], op })
+        await page.waitForTimeout(20)
+      }
       else if (op === 'offline') { if (rand(2)) await page.uncheck('#online'); else await page.check('#online') } else {
         await page.evaluate(({ i, op, at, n }) => {
           const ed = window.ytDemo.peers[i].editor

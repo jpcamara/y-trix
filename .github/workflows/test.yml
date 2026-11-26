@@ -18,6 +18,12 @@ jobs:
           - name: wide fuzz
             run: npx playwright test wide
             env: '{"DEBUG_SYNC":"1","STRICT":"1","WIDE_SEEDS":"1,2,3,4,5,6,7,8,9,10","WIDE_OPS":"200"}'
+          # What only the keyboard and the clipboard do (cut, paste and drop
+          # events, files, Delete, Tab, word delete, arrows), on a network
+          # that loses, repeats, reorders and merges updates.
+          - name: wide fuzz, keyboard and a bad network
+            run: npx playwright test wide
+            env: '{"DEBUG_SYNC":"1","STRICT":"1","WIDE_KEYS":"1","WIDE_CHAOS":"1","WIDE_SEEDS":"11,12,13,14,15,16,17,18,19,20","WIDE_OPS":"200"}'
           # Shapes Trix would never make, written straight into Y.
           - name: arbitrary writes
             run: npx playwright test break
