@@ -1,28 +1,67 @@
-# y-trix (prototype)
+# y-trix
 
-Yjs binding for [Trix](https://github.com/basecamp/trix) 2. Proprietary; all
-rights reserved. `trix`, `yjs` and `y-protocols` are peer dependencies; no
-Trix code is bundled.
+A [Yjs](https://yjs.dev) binding for the [Trix](https://trix-editor.org)
+editor: several people edit one Trix document at once, see each other's
+carets and selections, and undo only their own changes. It works with any
+Yjs provider; it is tested with y-websocket and y-indexeddb.
+
+Status: new, and not on npm yet. It is tested in Chromium, WebKit and
+Firefox against Trix 2.1.19 and 2.1.15 (the oldest supported), with fuzzers that hold every editor
+to showing the same document; see [Known limitations](#known-limitations)
+for what is still open.
+
+## Install
+
+```sh
+npm install github:jpcamara/y-trix
+```
+
+`trix` (2.1.15 or later), `yjs` (13.6) and `y-protocols` are peer
+dependencies. No Trix code is bundled.
+
+## Use
 
 ```js
 import 'trix'
 import * as Y from 'yjs'
-import { Awareness } from 'y-protocols/awareness'
+import { WebsocketProvider } from 'y-websocket'
 import { TrixBinding } from 'y-trix'
 
 const doc = new Y.Doc()
-const awareness = new Awareness(doc)
-awareness.setLocalStateField('user', { name: 'Alice', color: '#e6194b' })
-element.addEventListener('trix-initialize', () => {
-  const binding = new TrixBinding(doc.getText('trix'), element, awareness)
-  // later
-  binding.destroy()
+const provider = new WebsocketProvider('wss://example.com', 'room', doc)
+provider.awareness.setLocalStateField('user', { name: 'Alice', color: '#e6194b' })
+
+// a <trix-editor> is ready once it has fired trix-initialize
+let binding
+document.querySelector('trix-editor').addEventListener('trix-initialize', (event) => {
+  binding = new TrixBinding(doc.getText('trix'), event.target, provider.awareness)
 })
+
+// later
+binding.destroy()
 ```
 
-The fourth argument is options: `captureTimeout` (the pause, in ms, that
-ends an undo step; 500), `Trix` (the Trix object, if it is not the global
-one) and `debug` (the self-check described under Demo and tests).
+If the editor initialised before your code runs, create the binding
+straight away.
+
+The document lives in the `Y.Text` you pass in. Use one `Y.Text` per
+editor, and do not write to it in another format: the binding reads it as
+described under Data model.
+
+### `new TrixBinding(ytext, element, awareness?, options?)`
+
+- `ytext`: a `Y.Text` of a `Y.Doc`.
+- `element`: a `<trix-editor>` that has fired `trix-initialize`.
+- `awareness`: optional. With it, the local selection is published in the
+  `cursor` field and other users' carets and selections are drawn, named
+  and coloured by each user's `user: { name, color }` field.
+- `options.captureTimeout`: the pause, in ms, that ends an undo step (500).
+- `options.Trix`: the Trix object, if it is not the global one.
+- `options.debug`: the self-check described under Development.
+
+`binding.destroy()` takes the binding off the editor and gives Trix its
+own undo back; the editor keeps its content. `binding.undoManager` is the
+`Y.UndoManager` behind `editor.undo()` and `editor.redo()`.
 
 ## Data model
 
@@ -107,7 +146,7 @@ The HTML in a content attachment is sanitized by Trix itself, which older
 releases did not do: Trix 2.0 runs script found there. That is why the peer
 dependency is Trix 2.1.15 or later, and the binding warns on anything older.
 
-## Demo and tests
+## Development
 
 ```sh
 npm install
@@ -125,10 +164,8 @@ because macOS 27 denies it its usual app-data folder. The `chromium-trix2.1.15`
 project reruns the sync and security tests against the oldest supported
 Trix (`?trix=2.1.15` on the demo page).
 
-GitHub Actions is switched off for this repository for now (the workflow
-is disabled; private repositories pay for the minutes). Run the tests
-locally. `.github/workflows/test.yml` lists the fuzz runs that count as
-the full check.
+`.github/workflows/test.yml` runs the suite and the fuzzes below on every
+pull request.
 
 `tests/provider.spec.js` runs the binding through the real providers, one
 editor per browser context: `y-websocket` (two browsers, offline edits and
@@ -192,9 +229,9 @@ binding compare its editor with Y after every step and log the first step
 that leaves them different, with the steps before it (slow; for tests).
 `DEBUG_SYNC=1` turns it on for every test and fails the test on a report;
 `STRICT=1` also fails the two fuzzes if the settle check (see Known
-problems) ever has to redraw. `SLOW=6` slows Chromium's CPU six times.
+limitations) ever has to redraw. `SLOW=6` slows Chromium's CPU six times.
 
-## Known problems
+## Known limitations
 
 - Changes are applied piece by piece. As a backstop, a quarter of a second
   after the last change the binding compares the editor with Y read from
@@ -234,3 +271,15 @@ problems) ever has to redraw. `SLOW=6` slows Chromium's CPU six times.
   undo or redo and redraws the editor from Y.
 - Tested with Trix 2.1.19 in Chromium, WebKit and Firefox, and with Trix
   2.1.15 in Chromium.
+
+## Security
+
+Content from the shared document is treated as untrusted (see Untrusted
+content). If you find a way for one user to run code in, or break, another
+user's editor, please report it privately through
+[GitHub's vulnerability reporting](https://github.com/jpcamara/y-trix/security/advisories/new)
+and not in a public issue.
+
+## License
+
+[MIT](LICENSE)

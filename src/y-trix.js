@@ -1,4 +1,4 @@
-// y-trix: a Yjs binding for Trix (prototype).
+// y-trix: a Yjs binding for Trix.
 //
 // Data model. A Trix document is a list of blocks; each block is a list of
 // pieces (attributed strings and attachments) that ends in a "\n" piece marked

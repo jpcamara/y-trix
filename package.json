@@ -1,8 +1,23 @@
 {
   "name": "y-trix",
   "version": "0.0.1",
-  "description": "Yjs binding for the Trix editor (prototype)",
-  "license": "UNLICENSED",
+  "description": "Yjs binding for the Trix editor: collaborative editing, shared cursors and undo",
+  "keywords": [
+    "yjs",
+    "trix",
+    "crdt",
+    "collaboration",
+    "collaborative-editing",
+    "rich-text"
+  ],
+  "author": "JP Camara",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jpcamara/y-trix.git"
+  },
+  "homepage": "https://github.com/jpcamara/y-trix#readme",
+  "bugs": "https://github.com/jpcamara/y-trix/issues",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "main": "src/y-trix.js",
@@ -35,5 +50,6 @@
   },
   "overrides": {
     "@y/protocols": "1.0.6-1"
-  }
+  },
+  "sideEffects": false
 }
