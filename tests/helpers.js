@@ -113,5 +113,13 @@ export async function converge (page, n = 2, timeout = 5000) {
     throw e
   })
   expect(page.debugFailures || []).toEqual([])
+  // and every editor saves the same HTML for it (what a form would post)
+  const saved = await page.evaluate((n) => window.ytDemo.peers.slice(0, n).map((p) => p.element.editorController.compositionController.documentView.constructor.render(p.editor.getDocument()).innerHTML
+    // (not compared: a file that is still uploading is marked as such in the editor it was added in only; see Known problems)
+    .replace(/ data-trix-(id|serialized-attributes|store-key|serialize)="[^"]*"/g, '').replace(/<progress[^>]*>[^<]*<\/progress>/g, '')), n)
+  for (let i = 1; i < n; i++) {
+    if (saved[i] !== saved[0]) { let k = 0; while (k < saved[0].length && saved[0][k] === saved[i][k]) k++; console.log('SAVED', JSON.stringify([saved[0].slice(Math.max(0, k - 120), k + 160), saved[i].slice(Math.max(0, k - 120), k + 160)])) }
+    expect(saved[i] === saved[0]).toBe(true)
+  }
   return text(page, 0)
 }
