@@ -5,7 +5,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,6 +15,15 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium webkit firefox
       - run: npm test
+      # Three editors: a wide mix of edits, then shapes Trix would never make written straight into Y.
+      - run: npx playwright test wide
+        env:
+          WIDE_SEEDS: 1,2,3,4,5,6,7,8,9,10
+          WIDE_OPS: 200
+      - run: npx playwright test break
+        env:
+          BREAK_SEEDS: 1,2,3,4,5,6,7,8,9,10
+          BREAK_ROUNDS: 40
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

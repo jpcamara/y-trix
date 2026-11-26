@@ -679,8 +679,12 @@ export class TrixBinding {
       if (this.composition.document !== this.lastDoc) this.flushLocal()
       if (this.ytext.length === 0) return
       const want = new this.T.Document(this.runsToBlocks(deltaRuns(this.ytext.toDelta())))
-      if (docSig(want) === docSig(this.composition.document)) return
-      console.warn('y-trix: the editor did not show what Y holds; redrawn')
+      const a = docSig(want)
+      const b = docSig(this.composition.document)
+      if (a === b) return
+      let k = 0
+      while (k < a.length && a[k] === b[k]) k++
+      console.warn(`y-trix: the editor did not show what Y holds; redrawn (Y: ${a.slice(Math.max(0, k - 60), k + 60)} | editor: ${b.slice(Math.max(0, k - 60), k + 60)})`)
       const range = this.isFocused() ? this.safeSelectedRange() : null
       this.setDocumentRemote(want, range)
       this.noteTrailingBreak()
