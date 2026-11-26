@@ -85,6 +85,18 @@ export async function converge (page, n = 2, timeout = 5000) {
     throw e
   })
   await docJSON(page, 0)
+  if ((await consistent(page)).includes(false)) {
+    console.log('INCONSISTENT', await page.evaluate(() => window.ytDemo.peers.map((p) => {
+      const b = p.binding
+      const fromY = new window.Trix.Document(b.runsToBlocks(p.doc.getText('trix').toDelta().map((op) =>
+        typeof op.insert === 'string' ? { str: op.insert, attrs: op.attributes || {} } : { embed: op.insert, attrs: op.attributes || {} })))
+      const want = window.ytNorm(fromY)
+      const have = window.ytNorm(p.editor.getDocument())
+      let k = 0
+      while (k < want.length && want[k] === have[k]) k++
+      return JSON.stringify({ same: want === have, yLen: p.doc.getText('trix').length, missingBreak: !!b.missingBreak, docLen: p.editor.getDocument().getLength(), fromYLen: fromY.getLength(), fromY: want.slice(Math.max(0, k - 160), k + 200), editor: have.slice(Math.max(0, k - 160), k + 200) })
+    }).join('\n')))
+  }
   expect(await consistent(page)).toEqual(new Array(n).fill(true))
   await expect.poll(() => rendered(page)).toEqual(new Array(n).fill(true)).catch(async (e) => {
     console.log(await page.evaluate(() => window.ytDemo.peers.map((p) => {

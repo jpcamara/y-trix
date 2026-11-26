@@ -137,8 +137,27 @@ emoji. `WIDE_SEEDS=1,2,3 WIDE_OPS=160 npx playwright test wide` picks runs.
 Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 (`FUZZ_NO_UNDO=1` drops undo from the op mix).
 
+`tests/break.spec.js` writes shapes Trix would never make straight into Y
+from three editors while one of them types (`BREAK_SEEDS=1,2,3
+BREAK_ROUNDS=40`).
+
 ## Known problems
 
+- Changes are applied piece by piece, and now and then that leaves the
+  editor showing something other than Y holds (about 2 runs in 120 of the
+  wide fuzz). A quarter of a second after the last change the binding
+  compares the editor with Y read from scratch and redraws it if they
+  differ, logging `the editor did not show what Y holds`. Until then that
+  editor is wrong, and an edit made in that moment can land in the wrong
+  place. The causes behind those runs are not found yet.
+- Trix moves attachments marked as a gallery into a block of their own.
+  The binding lets it do that only as part of a local edit. A merge can
+  leave gallery attachments inside a text block, and they stay there, shown
+  inline, until someone edits the document.
+- Yjs itself: an insert, delete or format made through the Yjs API at a
+  position inside an emoji (between the two halves of a surrogate pair) can
+  leave two Y docs unequal. The binding never writes there, but another
+  client of the same document could.
 - Yjs formats a block break as a range around one character. Text inserted
   concurrently right after that range can pick up the block attributes,
   depending on client order, and undo can restore format markers. Both peers

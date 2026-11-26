@@ -85,6 +85,12 @@ const charIndex = (runs) => {
 }
 
 /** Y.Text delta ops as runs. */
+/** A string that is equal for two Trix documents that hold the same thing. */
+const docSig = (document) => stable(document.getBlocks().map((b) => [
+  b.attributes, b.htmlAttributes || {},
+  b.text.getPieces().map((p) => [p.attachment ? { att: p.attachment.getAttributes() } : p.toString(), p.getAttributes()])
+]))
+
 const deltaRuns = (delta) => delta.map((op) =>
   typeof op.insert === 'string'
     ? { str: op.insert, attrs: op.attributes || {} }
@@ -192,6 +198,20 @@ export class TrixBinding {
     this.attachments = new WeakMap()
     this.applyingRemote = false
 
+    // After every render Trix runs its editor filters, and the one it ships
+    // moves attachments marked as a gallery into a block of their own,
+    // adding block breaks. After a local change that is part of the user's
+    // edit and is written to Y with it. After a remote change it must not
+    // run: every editor would add the same breaks at once, or, as Trix runs
+    // it inside the remote change, add them here without Y hearing of it,
+    // and every position after them would be off. A merge can leave gallery
+    // attachments inside a text block; they stay there until someone edits.
+    this.remoteDoc = null
+    this.verifyTimer = null
+    this.origFilters = this.editor.filters.slice()
+    this.editor.filters.splice(0, this.editor.filters.length, ...this.origFilters.map((filter) => (snapshot) =>
+      (this.composition.document === this.remoteDoc ? undefined : filter.call(this.editor, snapshot))))
+
     // Take local changes synchronously as Trix makes them.
     const composition = this.composition
     const origSetDocument = composition.setDocument
@@ -266,7 +286,9 @@ export class TrixBinding {
     this.patchUndo()
 
     this.onYChange = (event, tr) => {
-      if (tr.origin === this || this.destroyed) return
+      if (this.destroyed) return
+      this.scheduleVerify()
+      if (tr.origin === this) return
       if (this.held) return // shown when the composition ends
       try {
         this.applyRemote(event)
@@ -640,6 +662,31 @@ export class TrixBinding {
     return true
   }
 
+  /**
+   * Local changes are written and remote ones applied piece by piece, which
+   * is fast and keeps the caret where it is. Whatever that leaves, the
+   * editor has to end up showing what Y holds: a document one character
+   * longer than Y puts every later edit in the wrong place. So once things
+   * are quiet, compare the editor with Y read from scratch, and redraw if
+   * they differ.
+   */
+  scheduleVerify () {
+    if (this.verifyTimer) clearTimeout(this.verifyTimer)
+    this.verifyTimer = setTimeout(() => {
+      this.verifyTimer = null
+      if (this.destroyed) return
+      if (this.held || this.composing || this.applyingRemote || this.controller.handlingInput) { this.scheduleVerify(); return }
+      if (this.composition.document !== this.lastDoc) this.flushLocal()
+      if (this.ytext.length === 0) return
+      const want = new this.T.Document(this.runsToBlocks(deltaRuns(this.ytext.toDelta())))
+      if (docSig(want) === docSig(this.composition.document)) return
+      console.warn('y-trix: the editor did not show what Y holds; redrawn')
+      const range = this.isFocused() ? this.safeSelectedRange() : null
+      this.setDocumentRemote(want, range)
+      this.noteTrailingBreak()
+    }, 250)
+  }
+
   renderAll () {
     if (this.held) {
       // everything is about to be shown
@@ -734,6 +781,8 @@ export class TrixBinding {
       if (!inCaption) this.composition.stopEditingAttachment()
     }
     this.applyingRemote = true
+    // (noted first: Trix can render, and run its filters, inside setDocument)
+    this.remoteDoc = document
     try {
       this.origSetDocument.call(this.composition, document)
     } finally {
@@ -927,12 +976,14 @@ export class TrixBinding {
     if (this.destroyed) return
     this.release()
     this.destroyed = true
+    if (this.verifyTimer) clearTimeout(this.verifyTimer)
     this.element.removeEventListener('compositionstart', this.onCompositionStart)
     this.element.removeEventListener('compositionend', this.onCompositionEnd)
     this.element.removeEventListener('blur', this.onBlur)
     if (this.shadow) { this.doc.off('update', this.onDocUpdate); this.shadow.destroy() }
     this.ytext.unobserve(this.onYChange)
     this.composition.setDocument = this.origSetDocument
+    this.editor.filters.splice(0, this.editor.filters.length, ...this.origFilters)
     this.element.removeEventListener('trix-attachment-edit', this.onAttachmentEdit)
     this.element.removeEventListener('input', this.onInput)
     Object.assign(this.editor, this.origUndo)
