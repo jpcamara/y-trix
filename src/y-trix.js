@@ -491,8 +491,8 @@ export class TrixBinding {
     // Yjs does not always leave a format as it was written (a block
     // attribute taken off a break can still be there afterwards). The
     // editor has to show what Y holds, so read the changed blocks back.
-    // (Not after plain typing: an insert lands as it is written, and
-    // reading Y costs time in a long document.)
+    // (Not after plain typing within a line: that lands as it is written,
+    // and reading Y costs time in a long document.)
     if (!split && this.wroteMore) {
       const mine = b.slice(p, b.length - s)
       const len = mine.reduce((n, block) => n + block.getLength(), 0)
@@ -578,6 +578,7 @@ export class TrixBinding {
         const embed = { attachment: { ...run.embed.attachment } }
         if (run.attachment) this.attachments.set(embed, run.attachment)
         this.wtext.insertEmbed(at, embed, { ...run.attrs })
+        this.wroteMore = true
         at++; i++
         continue
       }
@@ -588,6 +589,10 @@ export class TrixBinding {
       while (start > 0 && bChars[start - 1] === run) start--
       const str = run.str.slice(i - start, j - start)
       this.wtext.insert(at, str, { ...run.attrs })
+      // A line break is written with its own attributes next to others'
+      // (a block break beside a soft one), and Yjs can leave the ones around
+      // it reading differently. Y is read back after it (see writeLocal).
+      if (str.includes('\n')) this.wroteMore = true
       at += str.length
       i = j
     }
