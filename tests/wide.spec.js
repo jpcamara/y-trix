@@ -9,6 +9,8 @@ for (const seed0 of (process.env.WIDE_SEEDS || '102,105').split(',').map(Number)
     test.setTimeout(120000)
     const errors = []
     page.on('pageerror', (e) => errors.push(e.message))
+    // STRICT=1: the settle check having to redraw is a failure too
+    if (process.env.STRICT) page.on('console', (m) => { if (m.text().includes('did not show what Y holds')) errors.push(m.text()) })
     await open(page)
     await page.evaluate(() => window.ytDemo.addPeer())
     await page.fill('#delay', '120')

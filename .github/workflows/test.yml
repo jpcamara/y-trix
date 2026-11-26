@@ -12,14 +12,16 @@ jobs:
         include:
           - name: suite
             run: npm test
-          # Three editors and a wide mix of edits.
+          # Three editors and a wide mix of edits. DEBUG_SYNC: every binding
+          # compares its editor with Y after every step. STRICT: the settle
+          # check having to redraw is a failure.
           - name: wide fuzz
             run: npx playwright test wide
-            env: '{"WIDE_SEEDS":"1,2,3,4,5,6,7,8,9,10","WIDE_OPS":"200"}'
+            env: '{"DEBUG_SYNC":"1","STRICT":"1","WIDE_SEEDS":"1,2,3,4,5,6,7,8,9,10","WIDE_OPS":"200"}'
           # Shapes Trix would never make, written straight into Y.
           - name: arbitrary writes
             run: npx playwright test break
-            env: '{"BREAK_SEEDS":"1,2,3,4,5,6,7,8,9,10","BREAK_ROUNDS":"40"}'
+            env: '{"DEBUG_SYNC":"1","STRICT":"1","BREAK_SEEDS":"1,2,3,4,5,6,7,8,9,10","BREAK_ROUNDS":"40"}'
     name: ${{ matrix.name }}
     env: ${{ fromJSON(matrix.env || '{}') }}
     steps:

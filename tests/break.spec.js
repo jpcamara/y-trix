@@ -11,6 +11,8 @@ for (const seed0 of (process.env.BREAK_SEEDS || '11,12').split(',').map(Number))
     test.setTimeout(180000)
     const errors = []
     page.on('pageerror', (e) => errors.push(e.message))
+    // STRICT=1: the settle check having to redraw is a failure too
+    if (process.env.STRICT) page.on('console', (m) => { if (m.text().includes('did not show what Y holds')) errors.push(m.text()) })
     await open(page)
     await page.evaluate(() => window.ytDemo.addPeer())
     await page.fill('#delay', '10')
@@ -121,4 +123,30 @@ test('trix: a link applied over an attachment by a peer does not duplicate it', 
   await converge(page, 3)
   expect(await count()).toEqual([[1, 1], [1, 1], [1, 1]])
   expect(await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().getAttachments()[0].getAttributes().href)).toBeUndefined()
+})
+
+// Yjs turns an emoji into two U+FFFD when anything is put between its halves,
+// even if that thing is gone again by the time the update arrives. The change
+// event then says nothing changed, and the editor went on showing the emoji.
+test('trix: an emoji split by an edit that was undone before it arrived reads the same everywhere', async ({ page }) => {
+  await open(page)
+  await caret(page, 0, 5)
+  await page.keyboard.insertText('\u{1F680}')
+  await converge(page)
+  await page.uncheck('#online')
+  await page.evaluate(() => { const ed = window.ytDemo.peers[0].editor; ed.setSelectedRange([6, 6]); ed.insertString('x'); ed.setSelectedRange([6, 7]); ed.deleteInDirection('backward') })
+  await page.check('#online')
+  await page.evaluate(() => window.ytDemo.syncAll())
+  await page.waitForTimeout(100)
+  expect(await page.evaluate(() => window.ytDemo.peers.map((p) => [p.doc.getText('trix').toString().slice(0, 9), p.editor.getDocument().toString().slice(0, 9)]))).toEqual([['Hello�� w', 'Hello�� w'], ['Hello�� w', 'Hello�� w']])
+})
+
+// Yjs leaves an embed that is not an object out of the change event it
+// reports, so the editor never heard of it and was one character short of Y.
+test('trix: an embed that is not an object is shown, as a placeholder, by every editor', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => { const p = window.ytDemo.peers[1]; p.doc.transact(() => p.doc.getText('trix').insertEmbed(2, 7), 'a peer') })
+  expect(await converge(page)).toContain('He�llo')
+  await page.evaluate(() => { const e = window.ytDemo.peers[0].editor; e.setSelectedRange([4, 4]); e.insertString('Z') })
+  expect(await converge(page)).toContain('He�lZlo')
 })

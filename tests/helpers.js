@@ -3,6 +3,10 @@ import { expect, test } from '@playwright/test'
 export async function open (page, query = '') {
   page.on('console', (m) => { if (m.type() === 'warning' || m.type() === 'error') console.log(`[browser ${m.type()}]`, m.text()) })
   page.on('pageerror', (e) => console.log('[pageerror]', e.message))
+  // DEBUG_SYNC=1: every binding compares its editor with Y after every step
+  page.debugFailures = page.debugFailures || []
+  page.on('console', (m) => { if (m.text().startsWith('y-trix debug:')) { page.debugFailures.push(m.text().slice(0, 300)); console.log('DEBUG', m.text().slice(0, 12000)) } })
+  if (process.env.DEBUG_SYNC) query += (query.includes('?') ? '&' : '?') + 'debug'
   const version = test.info().project.metadata?.trix
   if (version) query += (query.includes('?') ? '&' : '?') + 'trix=' + version
   await page.goto('/demo/index.html' + query)
@@ -108,5 +112,6 @@ export async function converge (page, n = 2, timeout = 5000) {
     }).join('\n')))
     throw e
   })
+  expect(page.debugFailures || []).toEqual([])
   return text(page, 0)
 }

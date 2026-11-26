@@ -84,13 +84,23 @@ const charIndex = (runs) => {
   return out
 }
 
-/** Y.Text delta ops as runs. */
-/** A string that is equal for two Trix documents that hold the same thing. */
-const docSig = (document) => stable(document.getBlocks().map((b) => [
-  b.attributes, b.htmlAttributes || {},
-  b.text.getPieces().map((p) => [p.attachment ? { att: p.attachment.getAttributes() } : p.toString(), p.getAttributes()])
-]))
+/**
+ * A string that is equal for blocks that hold the same thing, however Trix
+ * happens to have cut the text into pieces.
+ */
+const blocksSig = (blocks) => stable(blocks.map((b) => {
+  const runs = []
+  for (const p of b.text.getPieces()) {
+    const attrs = stable(p.getAttributes())
+    const last = runs[runs.length - 1]
+    if (!p.attachment && last && typeof last[0] === 'string' && last[1] === attrs) last[0] += p.toString()
+    else runs.push([p.attachment ? { att: p.attachment.getAttributes() } : p.toString(), attrs])
+  }
+  return [b.attributes, b.htmlAttributes || {}, runs]
+}))
+const docSig = (document) => blocksSig(document.getBlocks())
 
+/** Y.Text delta ops as runs. */
 const deltaRuns = (delta) => delta.map((op) =>
   typeof op.insert === 'string'
     ? { str: op.insert, attrs: op.attributes || {} }
@@ -174,7 +184,9 @@ export class TrixBinding {
    * @param {Y.Text} ytext
    * @param {HTMLElement} element a <trix-editor> that has fired trix-initialize
    * @param {import('y-protocols/awareness').Awareness} [awareness]
-   * @param {{ captureTimeout?: number, Trix?: any }} [opts]
+   * @param {{ captureTimeout?: number, Trix?: any, debug?: boolean }} [opts]
+   *   debug: after every step, compare the editor with Y and report the
+   *   first step that leaves them different (slow; for tests)
    */
   constructor (ytext, element, awareness, opts = {}) {
     this.ytext = ytext
@@ -208,6 +220,9 @@ export class TrixBinding {
     // attachments inside a text block; they stay there until someone edits.
     this.remoteDoc = null
     this.verifyTimer = null
+    this.debug = !!opts.debug
+    this.trace = []
+    this.debugFailed = false
     this.origFilters = this.editor.filters.slice()
     this.editor.filters.splice(0, this.editor.filters.length, ...this.origFilters.map((filter) => (snapshot) =>
       (this.composition.document === this.remoteDoc ? undefined : filter.call(this.editor, snapshot))))
@@ -291,12 +306,23 @@ export class TrixBinding {
       this.scheduleVerify()
       if (tr.origin === this) return
       if (this.held) return // shown when the composition ends
+      const before = this.debug ? this.debugState() : ''
       try {
         this.applyRemote(event)
       } catch (e) {
         // Whatever a peer sent, keep going: show what Y holds.
         console.error('y-trix: applying a remote change failed', e)
         try { this.renderAll() } catch (e2) { console.error('y-trix: redraw failed', e2) }
+      }
+      if (this.debug) {
+        // what the transaction added and deleted, read from the items themselves
+        const items = []
+        for (let item = /** @type {any} */ (ytext)._start; item !== null; item = item.right) {
+          const added = item.id.clock >= (tr.beforeState.get(item.id.client) || 0)
+          const deleted = Y.isDeleted(tr.deleteSet, item.id)
+          if (added || deleted) items.push(`${added ? '+' : ''}${deleted ? '-' : ''}${item.deleted ? 'x' : ''}${item.id.client % 1000}:${item.id.clock}:${item.length}:${JSON.stringify(item.content.str ?? item.content.key ?? 'embed')}`)
+        }
+        this.check('remote', `${before} origin ${String(tr.origin && tr.origin.constructor ? tr.origin.constructor.name : tr.origin)}${tr.local ? ' local' : ''} delta ${JSON.stringify(event.delta).slice(0, 600)} items ${items.join(' ').slice(0, 600)}`)
       }
     }
     ytext.observe(this.onYChange)
@@ -329,6 +355,32 @@ export class TrixBinding {
    *   an ambiguous edit where the user made it
    */
   flushLocal (hint) {
+    if (!this.debug) { this.writeLocal(hint); return }
+    const before = this.debugState()
+    this.writeLocal(hint)
+    this.check('local', before + ' hint ' + hint)
+  }
+
+  debugState () {
+    return `[y ${this.ytext.length} editor ${this.composition.document.getLength()} last ${this.lastDoc.getLength()}${this.missingBreak ? ' missingBreak' : ''}${this.held ? ' held' : ''}${this.controller.handlingInput ? ' input' : ''}${this.applyingRemote ? ' remote' : ''}]`
+  }
+
+  /** opts.debug: the editor has to show what Y holds after every step. */
+  check (where, info) {
+    this.trace.push(`${where} ${info} -> ${this.debugState()}`)
+    if (this.trace.length > 30) this.trace.shift()
+    if (this.debugFailed || this.destroyed || this.held || this.applyingRemote || this.composition.document !== this.lastDoc) return
+    const want = new this.T.Document(this.runsToBlocks(deltaRuns(this.ytext.toDelta())))
+    const a = docSig(want)
+    const b = docSig(this.composition.document)
+    if (a === b || (this.ytext.length === 0 && this.composition.document.isEmpty())) return
+    this.debugFailed = true
+    let k = 0
+    while (k < a.length && a[k] === b[k]) k++
+    console.error(`y-trix debug: after a ${where} step the editor does not show what Y holds\nY:      ${a.slice(Math.max(0, k - 100), k + 160)}\neditor: ${b.slice(Math.max(0, k - 100), k + 160)}\n${this.trace.join('\n')}`)
+  }
+
+  writeLocal (hint) {
     const next = this.composition.document
     const prev = this.lastDoc
     this.lastDoc = next
@@ -366,6 +418,15 @@ export class TrixBinding {
       if (fixed !== r.str) { r.str = fixed; split = true }
     }
     this.wdoc.transact(() => this.applyRuns(base, aRuns, bRuns, hint === undefined ? undefined : hint - base), this)
+    // Yjs does not always leave a format as it was written (a block
+    // attribute taken off a break can still be there afterwards). The
+    // editor has to show what Y holds, so read the changed blocks back.
+    if (!split) {
+      const mine = b.slice(p, b.length - s)
+      const len = mine.reduce((n, block) => n + block.getLength(), 0)
+      const theirs = this.runsToBlocks(sliceRuns(deltaRuns(this.wtext.toDelta()), base, base + len))
+      if (blocksSig(theirs) !== blocksSig(mine)) split = true
+    }
     if (split) {
       // (not while an input method is composing: a render would end the
       // composition, so the editor shows it when the composition is over)
@@ -374,7 +435,7 @@ export class TrixBinding {
     }
   }
 
-  /** Show the U+FFFD that was written for half an emoji. */
+  /** Show what Y holds after a local change that it took differently. */
   showSplit () {
     this.splitPending = false
     const range = this.isFocused() ? this.safeSelectedRange() : null
@@ -740,8 +801,16 @@ export class TrixBinding {
       else newPos += typeof op.insert === 'string' ? op.insert.length : 1
       oldEnd = oldPos; newEnd = newPos
     }
-    if (start < 0) return
     const newLen = this.ytext.length
+    if (start < 0) {
+      // Nothing changed, says Yjs. It leaves an embed that is not an object
+      // (a number, which the API accepts) out of the delta, though, so go
+      // by the length as well.
+      if (newLen + (this.missingBreak ? 1 : 0) === this.lastDoc.getLength()) return
+      this.renderAll()
+      this.renderCursors()
+      return
+    }
     const old = this.lastDoc
     const oldLen = newLen - (newEnd - start) + (oldEnd - start)
     const blocks = old.getBlocks()

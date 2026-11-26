@@ -23,7 +23,7 @@ async function createPeer (name, color) {
   const doc = new Y.Doc()
   const awareness = new awarenessProtocol.Awareness(doc)
   awareness.setLocalStateField('user', { name, color })
-  const binding = new TrixBinding(doc.getText('trix'), element, awareness)
+  const binding = new TrixBinding(doc.getText('trix'), element, awareness, { debug: params.has('debug') })
   const peer = { name, id, doc, awareness, element, editor: element.editor, binding }
   peers.push(peer)
   return peer

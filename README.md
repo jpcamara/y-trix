@@ -141,16 +141,23 @@ Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 from three editors while one of them types (`BREAK_SEEDS=1,2,3
 BREAK_ROUNDS=40`).
 
+`new TrixBinding(ytext, element, awareness, { debug: true })` makes the
+binding compare its editor with Y after every step and log the first step
+that leaves them different, with the steps before it (slow; for tests).
+`DEBUG_SYNC=1` turns it on for every test and fails the test on a report;
+`STRICT=1` also fails the two fuzzes if the settle check (see Known
+problems) ever has to redraw.
+
 ## Known problems
 
-- Changes are applied piece by piece, and now and then that leaves the
-  editor showing something other than Y holds (about 1 run in 100 of the
-  wide fuzz). A quarter of a second after the last change the binding
-  compares the editor with Y read from scratch and redraws it if they
-  differ, logging what differed. Until then that editor is wrong, and an
-  edit made in that moment can land in the wrong place. The cases still
-  seen all involve an emoji that was cut in half: Y holds a U+FFFD that the
-  editor does not show. The cause is not found yet.
+- Changes are applied piece by piece. As a backstop, a quarter of a second
+  after the last change the binding compares the editor with Y read from
+  scratch and redraws it if they differ, logging what differed. It used to
+  fire about once in 100 runs of the wide fuzz. Both causes found are fixed
+  (Yjs leaves an embed that is not an object out of its change events, and
+  does not always leave a format as it was written), and it has not fired
+  in 495 fuzz runs since. If it does fire, that editor was wrong until
+  then, and an edit made in that moment can have landed in the wrong place.
 - Trix moves attachments marked as a gallery into a block of their own.
   The binding lets it do that only as part of a local edit. A merge can
   leave gallery attachments inside a text block, and they stay there, shown
