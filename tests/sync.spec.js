@@ -366,3 +366,26 @@ test('trix: an undo that throws in Yjs leaves the editor matching Y', async ({ p
   const out = await converge(page)
   expect(out.startsWith('world.')).toBe(true)
 })
+
+// Yjs groups undo by time alone: everything within half a second of the
+// change before it is one step. Trix makes a step of each kind of change.
+test('trix: undo steps end where Trix\'s own would, however fast the user is', async ({ page, browserName }) => {
+  test.skip(browserName === 'firefox', 'Firefox does not hand a paste event made by a script to Trix')
+  await open(page)
+  await caret(page, 0, 'end')
+  await page.keyboard.type(' abc')
+  await page.evaluate(() => { const el = window.ytDemo.peers[0].element; const d = new DataTransfer(); d.setData('text/plain', 'pasted'); el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: d, bubbles: true, cancelable: true })) })
+  await page.waitForTimeout(50)
+  await page.keyboard.type('def')
+  expect(await converge(page)).toContain(' abcpasteddef')
+  // undo until there is nothing left to undo, and look at each state on the way
+  const states = []
+  for (let n = 0; n < 12 && await page.evaluate(() => window.ytDemo.peers[0].editor.canUndo()); n++) {
+    await page.keyboard.press(`${mod}+z`)
+    states.push(await converge(page))
+  }
+  // what was typed after the paste, the paste, and what was typed before it are taken back one at a time
+  expect(states.some((s) => s.includes(' abcpasted') && !s.includes('def'))).toBe(true)
+  expect(states.some((s) => s.includes(' abc') && !s.includes('pasted'))).toBe(true)
+  expect(states[states.length - 1]).toBe('Hello world. Edit me in either editor.\nSecond paragraph.\n')
+})

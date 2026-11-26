@@ -958,10 +958,21 @@ export class TrixBinding {
     ed.redo = () => this.runUndo(() => this.undoManager.redo())
     ed.canUndo = () => this.undoManager.undoStack.length > 0
     ed.canRedo = () => this.undoManager.redoStack.length > 0
-    ed.recordUndoEntry = () => {}
+    // Undo steps end where Trix's own would: Yjs alone goes by time, and
+    // everything done less than captureTimeout after the change before it
+    // is one step. Trix says before each change what kind it is, and makes
+    // a new step unless it is more of the same (typing in the same block).
+    this.lastUndoKey = null
+    ed.recordUndoEntry = (description, { context, consolidatable } = {}) => {
+      let key = null
+      if (consolidatable) { try { key = JSON.stringify([description, context]) } catch (e) {} }
+      if (key === null || key !== this.lastUndoKey) this.undoManager.stopCapturing()
+      this.lastUndoKey = key
+    }
   }
 
   runUndo (fn) {
+    this.lastUndoKey = null
     this.release()
     if (this.composition.document !== this.lastDoc) this.flushLocal()
     try {

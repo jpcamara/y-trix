@@ -53,7 +53,10 @@ concurrent edits. Changing a block's attributes formats one character.
   and focus are put back after Trix renders, because Trix's render clears the
   window selection and can move it into this editor.
 - Undo: `editor.undo/redo/canUndo/canRedo` use a `Y.UndoManager` that tracks
-  only this binding; Trix's own undo entries are dropped.
+  only this binding; Trix's own undo entries are dropped. Steps end where
+  Trix's own would (it says before each change whether it is more of the
+  same typing or something new), and also after a pause of `captureTimeout`
+  (500 ms).
 - Enter: Trix renders an Enter on the next animation frame, and a key that
   arrives before that frame lands in the wrong place (plain Trix does this
   too; it renders at once only on iOS). The binding makes Trix render as soon
