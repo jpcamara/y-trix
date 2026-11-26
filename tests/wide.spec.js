@@ -3,7 +3,7 @@
 // some land inside an emoji. WIDE_SEEDS=1,2,3 WIDE_OPS=160 pick the runs;
 // WIDE_CHAOS=1 makes the network lose, repeat, reorder and merge updates.
 import { test, expect } from '@playwright/test'
-import { open, caret, converge } from './helpers.js'
+import { open, caret, converge, quiet } from './helpers.js'
 
 for (const seed0 of (process.env.WIDE_SEEDS || '102,105').split(',').map(Number)) {
   test(`trix: wide fuzz with three editors converges (seed ${seed0})`, async ({ page }) => {
@@ -86,5 +86,6 @@ for (const seed0 of (process.env.WIDE_SEEDS || '102,105').split(',').map(Number)
     await page.evaluate(() => window.ytDemo.syncAll())
     await converge(page, 3, 15000)
     expect(errors).toEqual([])
+    await quiet(page)
   })
 }

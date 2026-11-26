@@ -4,7 +4,7 @@
 // that document has to be what its Y says.
 // BREAK_SEEDS=1,2,3 BREAK_ROUNDS=30 pick the runs.
 import { test, expect } from '@playwright/test'
-import { open, caret, converge } from './helpers.js'
+import { open, caret, converge, quiet } from './helpers.js'
 
 for (const seed0 of (process.env.BREAK_SEEDS || '11,12').split(',').map(Number)) {
   test(`trix: random writes to Y are shown the same by every editor (seed ${seed0})`, async ({ page }) => {
@@ -81,6 +81,7 @@ for (const seed0 of (process.env.BREAK_SEEDS || '11,12').split(',').map(Number))
     await converge(page, 3, 15000)
     expect(await page.evaluate(() => window.pwned)).toBeUndefined()
     expect(errors).toEqual([])
+    await quiet(page)
   })
 }
 

@@ -123,3 +123,15 @@ export async function converge (page, n = 2, timeout = 5000) {
   }
   return text(page, 0)
 }
+
+/**
+ * Once nobody is editing, nobody writes: two editors that each tidy what
+ * the other wrote would go on for ever. The documents' clocks have to stand
+ * still.
+ */
+export async function quiet (page, ms = 500) {
+  const clocks = () => page.evaluate(() => window.ytDemo.peers.map((p) => JSON.stringify(Array.from(window.ytDemo.Y.encodeStateVector(p.doc))) + '|' + JSON.stringify(window.ytDemo.Y.encodeStateAsUpdate(p.doc).length)))
+  const before = await clocks()
+  await page.waitForTimeout(ms)
+  expect(await clocks()).toEqual(before)
+}
