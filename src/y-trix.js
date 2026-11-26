@@ -707,29 +707,48 @@ export class TrixBinding {
   }
 
   /**
-   * Trix turns "\r\n" into "\n" in every string it stores, which would leave
-   * its document shorter than the Y.Text. Trix never writes a "\r" itself,
-   * so one can only come from another client: delete the "\r" of each pair
-   * in Y. Only deleting keeps this safe when every editor does it at once.
-   * (A "\r" on its own becomes "\n" in Trix, the same length, and stays.)
+   * Two things another client can put in Y that this editor cannot show as
+   * they are, mended in Y:
+   *
+   * Trix turns "\r\n" into "\n" in every string it stores, which would
+   * leave its document shorter than the Y.Text. The "\r" of each pair is
+   * deleted. Only deleting keeps this safe when every editor does it at
+   * once. (A "\r" on its own becomes "\n" in Trix, the same length, and
+   * stays.)
+   *
+   * Half of a surrogate pair on its own reaches every other Y.Doc as
+   * U+FFFD, because updates travel as UTF-8, while the doc it was written
+   * to keeps the half. Only that doc can see it, so only the editors on it
+   * replace it with U+FFFD.
    * @return {boolean} whether Y changed
    */
-  normalizeNewlines () {
-    const fixes = []
+  normalizeY () {
+    const fixes = [] // [position, replacement or null, attributes]
     let pos = 0
     const delta = this.ytext.toDelta()
     delta.forEach((op, i) => {
       if (typeof op.insert !== 'string') { pos += 1; return }
-      for (let k = 0; k < op.insert.length; k++) {
-        if (op.insert[k] !== '\r') continue
-        const next = k + 1 < op.insert.length ? op.insert[k + 1] : (delta[i + 1] && typeof delta[i + 1].insert === 'string' ? delta[i + 1].insert[0] : '')
-        if (next === '\n') fixes.push(pos + k)
+      const str = op.insert
+      if (str.includes('\r')) {
+        for (let k = 0; k < str.length; k++) {
+          if (str[k] !== '\r') continue
+          const next = k + 1 < str.length ? str[k + 1] : (delta[i + 1] && typeof delta[i + 1].insert === 'string' ? delta[i + 1].insert[0] : '')
+          if (next === '\n') fixes.push([pos + k, null])
+        }
       }
-      pos += op.insert.length
+      if (SURROGATE.test(str)) {
+        LONE_SURROGATE.lastIndex = 0
+        for (let m = LONE_SURROGATE.exec(str); m !== null; m = LONE_SURROGATE.exec(str)) fixes.push([pos + m.index, '\ufffd', op.attributes || {}])
+      }
+      pos += str.length
     })
     if (fixes.length === 0) return false
+    fixes.sort((a, b) => b[0] - a[0])
     this.doc.transact(() => {
-      for (let i = fixes.length - 1; i >= 0; i--) this.ytext.delete(fixes[i], 1)
+      for (const [at, put, attrs] of fixes) {
+        this.ytext.delete(at, 1)
+        if (put !== null) this.ytext.insert(at, put, { ...attrs })
+      }
     }, this)
     return true
   }
@@ -769,7 +788,7 @@ export class TrixBinding {
       this.held = false
       Y.applyUpdate(this.shadow, Y.encodeStateAsUpdate(this.doc, Y.encodeStateVector(this.shadow)), 'sync')
     }
-    this.normalizeNewlines()
+    this.normalizeY()
     const blocks = this.runsToBlocks(deltaRuns(this.ytext.toDelta()))
     this.setDocumentRemote(new this.T.Document(blocks))
     this.noteTrailingBreak()
@@ -785,7 +804,7 @@ export class TrixBinding {
     let start = -1
     let oldEnd = 0
     let newEnd = 0
-    if (this.normalizeNewlines()) {
+    if (this.normalizeY()) {
       // Y no longer matches the event; show all of it.
       this.renderAll()
       this.renderCursors()

@@ -146,6 +146,10 @@ two editors on one `Y.Doc`.
 Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 (`FUZZ_NO_UNDO=1` drops undo from the op mix).
 
+`tests/odd.spec.js` writes about sixty odd things into Y one at a time
+(values of the wrong type, names like `constructor`, control characters,
+half an emoji) and types next to each.
+
 `tests/break.spec.js` writes shapes Trix would never make straight into Y
 from three editors while one of them types (`BREAK_SEEDS=1,2,3
 BREAK_ROUNDS=40`).
@@ -174,7 +178,9 @@ problems) ever has to redraw.
 - Yjs itself: an insert, delete or format made through the Yjs API at a
   position inside an emoji (between the two halves of a surrogate pair) can
   leave two Y docs unequal. The binding never writes there, but another
-  client of the same document could.
+  client of the same document could. (Half an emoji inserted as text
+  is mended: the editors on that doc replace it with U+FFFD, which is what
+  every other doc received.)
 - Yjs formats a block break as a range around one character. Text inserted
   concurrently right after that range can pick up the block attributes,
   depending on client order, and undo can restore format markers. Both peers
