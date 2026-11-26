@@ -235,6 +235,7 @@ export class TrixBinding {
     this.missingBreak = false
     this.destroyed = false
     this.held = false
+    this.splitPending = false
     this.composing = false
     this.shadow = null
     this.shadowText = null
@@ -342,10 +343,19 @@ export class TrixBinding {
       if (fixed !== r.str) { r.str = fixed; split = true }
     }
     this.wdoc.transact(() => this.applyRuns(base, aRuns, bRuns, hint === undefined ? undefined : hint - base), this)
-    if (split && !this.held) {
-      const range = this.isFocused() ? this.safeSelectedRange() : null
-      this.setDocumentRemote(new this.T.Document(this.runsToBlocks(deltaRuns(this.ytext.toDelta()))), range)
+    if (split) {
+      // (not while an input method is composing: a render would end the
+      // composition, so the editor shows it when the composition is over)
+      if (this.held) this.splitPending = true
+      else this.showSplit()
     }
+  }
+
+  /** Show the U+FFFD that was written for half an emoji. */
+  showSplit () {
+    this.splitPending = false
+    const range = this.isFocused() ? this.safeSelectedRange() : null
+    this.setDocumentRemote(new this.T.Document(this.runsToBlocks(deltaRuns(this.ytext.toDelta()))), range)
   }
 
   /**
@@ -493,13 +503,17 @@ export class TrixBinding {
     } finally {
       this.shadowText.unobserve(observe)
     }
-    if (!event) return
-    try {
-      // the event's delta is in the shadow's positions, which are the editor's
-      this.applyRemote(event)
-    } catch (e) {
-      console.error('y-trix: applying held remote changes failed', e)
-      try { this.renderAll() } catch (e2) { console.error('y-trix: redraw failed', e2) }
+    if (event) {
+      try {
+        // the event's delta is in the shadow's positions, which are the editor's
+        this.applyRemote(event)
+      } catch (e) {
+        console.error('y-trix: applying held remote changes failed', e)
+        try { this.renderAll() } catch (e2) { console.error('y-trix: redraw failed', e2) }
+      }
+    }
+    if (this.splitPending) {
+      try { this.showSplit() } catch (e) { console.error('y-trix: redraw failed', e) }
     }
   }
 
