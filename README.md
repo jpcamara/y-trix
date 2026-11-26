@@ -5,7 +5,7 @@ editor: several people edit one Trix document at once, see each other's
 carets and selections, and undo only their own changes. It works with any
 Yjs provider; it is tested with y-websocket and y-indexeddb.
 
-Status: new, and not on npm yet. It is tested in Chromium, WebKit and
+Status: new. It is tested in Chromium, WebKit and
 Firefox against Trix 2.1.19 and 2.1.15 (the oldest supported), with fuzzers that hold every editor
 to showing the same document; see [Known limitations](#known-limitations)
 for what is still open.
@@ -13,11 +13,11 @@ for what is still open.
 ## Install
 
 ```sh
-npm install github:jpcamara/y-trix
+npm install y-trix yjs y-protocols trix
 ```
 
 `trix` (2.1.15 or later), `yjs` (13.6) and `y-protocols` are peer
-dependencies. No Trix code is bundled.
+dependencies. No Trix code is bundled. TypeScript types are included.
 
 ## Use
 

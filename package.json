@@ -1,6 +1,6 @@
 {
   "name": "y-trix",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Yjs binding for the Trix editor: collaborative editing, shared cursors and undo",
   "keywords": [
     "yjs",
@@ -18,11 +18,14 @@
   "homepage": "https://github.com/jpcamara/y-trix#readme",
   "bugs": "https://github.com/jpcamara/y-trix/issues",
   "license": "MIT",
-  "private": true,
   "type": "module",
   "main": "src/y-trix.js",
+  "types": "src/y-trix.d.ts",
   "exports": {
-    ".": "./src/y-trix.js"
+    ".": {
+      "types": "./src/y-trix.d.ts",
+      "default": "./src/y-trix.js"
+    }
   },
   "files": [
     "src"
