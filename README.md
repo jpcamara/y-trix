@@ -139,8 +139,12 @@ Attachments are shared like any other content, including their captions.
 - **Until the upload finishes**, other people see the attachment without its
   file.
 - **To switch attachments off**, pass `{ attachments: false }`. Files are
-  refused, and an attachment that is already in the document shows as a
-  placeholder character in that editor.
+  refused, and an image in pasted HTML or an attachment your own code
+  inserts is taken out before anything is shared, so that editor never
+  adds one to the document. An attachment someone else put there shows as
+  a placeholder character. It is still in the shared document: this is a
+  setting of one editor, and another client can write what it likes, so
+  filter on the server too if it matters there.
 
 ### Styling the carets
 

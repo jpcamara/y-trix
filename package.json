@@ -1,6 +1,6 @@
 {
   "name": "y-trix",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Yjs binding for the Trix editor: collaborative editing, shared cursors and undo",
   "keywords": [
     "yjs",

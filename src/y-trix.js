@@ -258,7 +258,21 @@ export class TrixBinding {
       if (this.applyingRemote) return origSetDocument.call(composition, document)
       const range = this.safeSelectedRange()
       const before = composition.document.getLength()
-      const result = origSetDocument.call(composition, document)
+      let result = origSetDocument.call(composition, document)
+      // attachments: false. A file is refused when Trix asks (see
+      // onFileAccept), but pasted HTML with an image in it, or the app's own
+      // code, puts an attachment in without asking. It is taken out again
+      // before anything is written, so this editor never adds one to the
+      // shared document.
+      if (this.noAttachments) {
+        for (let n = 0; n < 1000; n++) {
+          const attachment = composition.document.getAttachments()[0]
+          if (!attachment) break
+          const at = composition.document.getRangeOfAttachment(attachment)
+          if (!at) break
+          result = origSetDocument.call(composition, composition.document.removeTextAtRange(at))
+        }
+      }
       if (composition.document !== this.lastDoc) {
         const delta = composition.document.getLength() - before
         let hint

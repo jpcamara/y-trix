@@ -283,7 +283,34 @@ test('trix: with attachments off a file is refused and an attachment from someon
   expect(r.lengths[0]).toBe(r.lengths[1])
   expect(r.after).toBe(0)
   expect(r.inY).toBe(1)
+  // and nothing the twin itself does puts an attachment in the shared document:
+  // pasted HTML with an image, Trix's own API, a whole document loaded
+  const own = await page.evaluate(async () => {
+    const [a, , t] = window.ytDemo.peers
+    const embeds = () => a.doc.getText('trix').toDelta().filter((op) => typeof op.insert !== 'string').length
+    const wait = () => new Promise((resolve) => setTimeout(resolve, 200))
+    const before = embeds()
+    const out = []
+    t.element.focus()
+    t.editor.setSelectedRange([2, 2])
+    t.editor.insertHTML('<img src="https://example.com/x.png"> pasted ')
+    await wait(); out.push(embeds() - before)
+    const data = new DataTransfer()
+    data.setData('text/html', '<p>from the clipboard <img src="https://example.com/y.png"></p>')
+    data.setData('text/plain', 'from the clipboard')
+    t.element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }))
+    await wait(); out.push(embeds() - before)
+    t.editor.insertAttachment(new window.Trix.Attachment({ content: '<b>card</b>' }))
+    await wait(); out.push(embeds() - before)
+    t.editor.insertAttachments([1, 2].map((n) => new window.Trix.Attachment({ url: `https://example.com/${n}.png`, contentType: 'image/png' })))
+    await wait(); out.push(embeds() - before)
+    return { out, kept: a.doc.getText('trix').toString().includes('pasted'), twin: t.editor.getDocument().getAttachments().length, same: t.editor.getDocument().toString().replace(/\ufffd/g, '\ufffc') === a.editor.getDocument().toString() }
+  })
+  expect(own).toEqual({ out: [0, 0, 0, 0], kept: true, twin: 0, same: true })
   // typing in the twin lands where it should for everyone
+  await page.evaluate(() => { const t = window.ytDemo.peers[2]; t.editor.loadHTML(''); t.editor.insertString('Hello') })
+  await page.evaluate(() => { const b = window.ytDemo.peers[1]; b.element.focus(); b.editor.setSelectedRange([0, 0]); b.editor.insertAttachment(new window.Trix.Attachment({ content: '<em>card</em>' })) })
+  await page.waitForTimeout(300)
   await caret(page, 2, 1)
   await page.keyboard.type('X')
   await page.waitForTimeout(300)
