@@ -1019,14 +1019,28 @@ export class TrixBinding {
     doc.addEventListener('scroll', this.onRender, true)
   }
 
+  /**
+   * Draw the other users' carets, at the next animation frame. Finding
+   * where a caret goes makes the browser lay the document out, which it
+   * would otherwise do once per frame: drawn after every remote change, a
+   * few keystrokes arriving together in a very long block cost a layout
+   * each.
+   */
   renderCursors () {
-    if (!this.overlay || this.destroyed) return
-    try {
-      this.drawCursors()
-    } catch (e) {
-      // a peer's awareness state must not be able to break this editor
-      console.error('y-trix: drawing remote carets failed', e)
+    if (!this.overlay || this.destroyed || this.cursorFrame) return
+    const win = this.overlay.ownerDocument.defaultView
+    const draw = () => {
+      this.cursorFrame = 0
+      if (!this.overlay || this.destroyed) return
+      try {
+        this.drawCursors()
+      } catch (e) {
+        // a peer's awareness state must not be able to break this editor
+        console.error('y-trix: drawing remote carets failed', e)
+      }
     }
+    if (!win || typeof win.requestAnimationFrame !== 'function') { draw(); return }
+    this.cursorFrame = win.requestAnimationFrame(draw)
   }
 
   drawCursors () {
