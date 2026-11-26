@@ -157,6 +157,11 @@ to be where a Yjs relative position taken beforehand says it is.
 while two others put in numbered words: every word has to be there
 afterwards, and nothing the first user typed may be left.
 
+`tests/keep.spec.js` has three users type and restructure the document
+around each other, nobody deleting anything, on a bad network with offline
+spells, and holds every character typed to being in the document exactly
+once at the end (`KEEP_SEEDS=1,2,3 KEEP_OPS=150`).
+
 `tests/odd.spec.js` writes about sixty odd things into Y one at a time
 (values of the wrong type, names like `constructor`, control characters,
 half an emoji) and types next to each.
@@ -179,8 +184,10 @@ problems) ever has to redraw.
   scratch and redraws it if they differ, logging what differed. It used to
   fire about once in 100 runs of the wide fuzz. Both causes found are fixed
   (Yjs leaves an embed that is not an object out of its change events, and
-  does not always leave a format as it was written), and it has not fired
-  in 495 fuzz runs since. If it does fire, that editor was wrong until
+  does not always leave a format as it was written). A third turned up
+  later and is fixed too: a format marker that Yjs deletes as redundant
+  changes what a character reads as, in a change event that says nothing
+  changed. It has not fired in the fuzz runs since. If it does fire, that editor was wrong until
   then, and an edit made in that moment can have landed in the wrong place.
 - Trix moves attachments marked as a gallery into a block of their own.
   The binding lets it do that only as part of a local edit. A merge can

@@ -830,10 +830,14 @@ export class TrixBinding {
     const newLen = this.ytext.length
     if (start < 0) {
       // Nothing changed, says Yjs. It leaves an embed that is not an object
-      // (a number, which the API accepts) out of the delta, though, so go
-      // by the length as well.
-      if (newLen + (this.missingBreak ? 1 : 0) === this.lastDoc.getLength()) return
-      this.renderAll()
+      // (a number, which the API accepts) out of the delta, though, and a
+      // format marker it deleted as redundant can change what a character
+      // reads as. This is rare, so look at everything.
+      const want = new this.T.Document(this.runsToBlocks(deltaRuns(this.ytext.toDelta())))
+      if (docSig(want) === docSig(this.lastDoc)) return
+      const same = newLen + (this.missingBreak ? 1 : 0) === this.lastDoc.getLength()
+      this.setDocumentRemote(want, same && this.isFocused() ? this.safeSelectedRange() : null)
+      this.noteTrailingBreak()
       this.renderCursors()
       return
     }
