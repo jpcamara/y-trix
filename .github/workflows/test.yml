@@ -2,6 +2,11 @@ name: test
 on:
   push:
   pull_request:
+# A newer push to the same branch cancels the run for the older one: the
+# jobs are long, and several pushes in a row otherwise each run them all.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   test:
     runs-on: ubuntu-latest
