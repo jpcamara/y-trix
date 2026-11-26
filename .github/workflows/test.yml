@@ -5,7 +5,23 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: suite
+            run: npm test
+          # Three editors and a wide mix of edits.
+          - name: wide fuzz
+            run: npx playwright test wide
+            env: '{"WIDE_SEEDS":"1,2,3,4,5,6,7,8,9,10","WIDE_OPS":"200"}'
+          # Shapes Trix would never make, written straight into Y.
+          - name: arbitrary writes
+            run: npx playwright test break
+            env: '{"BREAK_SEEDS":"1,2,3,4,5,6,7,8,9,10","BREAK_ROUNDS":"40"}'
+    name: ${{ matrix.name }}
+    env: ${{ fromJSON(matrix.env || '{}') }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -14,19 +30,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium webkit firefox
-      - run: npm test
-      # Three editors: a wide mix of edits, then shapes Trix would never make written straight into Y.
-      - run: npx playwright test wide
-        env:
-          WIDE_SEEDS: 1,2,3,4,5,6,7,8,9,10
-          WIDE_OPS: 200
-      - run: npx playwright test break
-        env:
-          BREAK_SEEDS: 1,2,3,4,5,6,7,8,9,10
-          BREAK_ROUNDS: 40
+      - run: npm run build:demo
+      - run: ${{ matrix.run }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: test-results
+          name: test-results-${{ strategy.job-index }}
           path: test-results
           retention-days: 7
