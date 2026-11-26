@@ -9,7 +9,7 @@ const COLORS = ['#e6194b', '#3cb44b', '#4363d8', '#f58231', '#911eb4']
 const NAMES = ['Alice', 'Bob', 'Carol', 'Dave', 'Eve']
 const params = new URLSearchParams(location.search)
 const peers = []
-window.ytDemo = { peers, Y, ready: null }
+window.ytDemo = { peers, Y, TrixBinding, ready: null }
 
 async function createPeer (name, color) {
   const id = name.toLowerCase().replace(/[^a-z]+/g, '')
@@ -31,12 +31,32 @@ async function createPeer (name, color) {
 
 const online = () => document.getElementById('online').checked
 const delay = () => Number(document.getElementById('delay').value) || 0
-const deliver = (fn) => setTimeout(fn, delay())
+// window.ytDemo.chaos = () => (a number in [0, 1)) makes the network a bad
+// one: updates arrive late and out of order, some twice, some never (until
+// the next full sync), and some merged with others into one update.
+const batches = new Map()
+const deliver = (fn, update, other) => {
+  const chaos = window.ytDemo.chaos
+  if (!chaos) return setTimeout(fn, delay())
+  const r = chaos()
+  if (r < 0.06) return // lost
+  if (update && r > 0.7) {
+    // held back and delivered with whatever else is held, as one update
+    if (!batches.has(other)) {
+      batches.set(other, [])
+      setTimeout(() => { const all = batches.get(other); batches.delete(other); Y.applyUpdate(other.doc, Y.mergeUpdates(all), 'remote') }, delay() * 4)
+    }
+    batches.get(other).push(update)
+    return
+  }
+  setTimeout(fn, delay() * 8 * chaos())
+  if (r < 0.14) setTimeout(fn, delay() * 8 * chaos()) // and again
+}
 
 function connect (peer) {
   peer.doc.on('update', (update, origin) => {
     if (origin === 'remote' || !online()) return
-    for (const other of peers) if (other !== peer) deliver(() => Y.applyUpdate(other.doc, update, 'remote'))
+    for (const other of peers) if (other !== peer) deliver(() => Y.applyUpdate(other.doc, update, 'remote'), update, other)
   })
   peer.awareness.on('update', ({ added, updated, removed }, origin) => {
     if (origin === 'remote' || !online()) return

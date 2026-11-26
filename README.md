@@ -134,6 +134,13 @@ a late joiner hold the same document.
 pasted HTML, nesting, undo and redo, offline spells, and positions inside
 emoji. `WIDE_SEEDS=1,2,3 WIDE_OPS=160 npx playwright test wide` picks runs.
 
+`WIDE_CHAOS=1` gives it a bad network: updates arrive late and out of order,
+some twice, some never until the next full sync, and some merged into one.
+`tests/lifecycle.spec.js` covers the editor and the binding coming and
+going: the element hidden, disabled, taken out of the page and put back, a
+whole document loaded over everything, a binding destroyed and made again,
+two editors on one `Y.Doc`.
+
 Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 (`FUZZ_NO_UNDO=1` drops undo from the op mix).
 

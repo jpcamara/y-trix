@@ -1,6 +1,7 @@
 // Three editors, a wide mix of operations through the keyboard and the
 // editor API, offline spells, and undo. Positions are raw UTF-16 offsets, so
-// some land inside an emoji. WIDE_SEEDS=1,2,3 WIDE_OPS=160 pick the runs.
+// some land inside an emoji. WIDE_SEEDS=1,2,3 WIDE_OPS=160 pick the runs;
+// WIDE_CHAOS=1 makes the network lose, repeat, reorder and merge updates.
 import { test, expect } from '@playwright/test'
 import { open, caret, converge } from './helpers.js'
 
@@ -14,6 +15,8 @@ for (const seed0 of (process.env.WIDE_SEEDS || '102,105').split(',').map(Number)
     await open(page)
     await page.evaluate(() => window.ytDemo.addPeer())
     await page.fill('#delay', '120')
+    // WIDE_CHAOS=1: updates late, out of order, twice, lost, or merged (see demo/main.js)
+    if (process.env.WIDE_CHAOS) await page.evaluate((s) => { let seed = s + 1; window.ytDemo.chaos = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 } }, seed0)
     let seed = seed0
     const rand = (n) => { seed = (seed * 16807) % 2147483647; return seed % n }
     const ops = ['type', 'type', 'enter', 'backspace', 'bold', 'italic', 'href', 'heading1', 'quote', 'code', 'bullet', 'number', 'indent', 'outdent', 'attachment', 'html', 'rangeDelete', 'undo', 'redo', 'offline']
@@ -40,6 +43,7 @@ for (const seed0 of (process.env.WIDE_SEEDS || '102,105').split(',').map(Number)
       }
     }
     await page.check('#online')
+    if (process.env.WIDE_CHAOS) { await page.evaluate(() => { window.ytDemo.chaos = null }); await page.waitForTimeout(1200) }
     await page.evaluate(() => window.ytDemo.syncAll())
     await converge(page, 3, 15000)
     expect(errors).toEqual([])
