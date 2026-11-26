@@ -580,7 +580,9 @@ export class TrixBinding {
     if (this.composition.document !== this.lastDoc) this.flushLocal()
     this.held = false
     let event = null
-    const observe = (e) => { event = e }
+    // (the delta is worked out now: once the transaction is over Yjs has
+    // thrown the deleted items away, and it would say nothing was deleted)
+    const observe = (e) => { event = e; void e.delta }
     this.shadowText.observe(observe)
     try {
       Y.applyUpdate(this.shadow, Y.encodeStateAsUpdate(this.doc, Y.encodeStateVector(this.shadow)), 'sync')

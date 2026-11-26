@@ -56,3 +56,57 @@ test('trix: an emoji split during a composition reads the same everywhere afterw
   expect(await text(page, 0)).toContain('�é�')
   expect(await text(page, 1)).toContain('�é�')
 })
+
+// Harder: while A composes at position 5 (after "Hello"), a peer changes the
+// formatting or the structure of that very block.
+const hard = {
+  'bold later in the block': (t) => t.format(8, 4, { bold: true }),
+  'bold over the text before the caret': (t) => t.format(0, 5, { bold: true }),
+  'bold over the whole block': (t) => t.format(0, 30, { bold: true }),
+  'a link around the caret': (t) => t.format(3, 5, { href: 'https://example.com/' }),
+  'the block made a heading': (t) => t.format(t.toString().indexOf('\n'), 1, { block: ['heading1'] }),
+  'the block put in a list': (t) => t.format(t.toString().indexOf('\n'), 1, { block: ['bulletList', 'bullet'] }),
+  'Enter before the caret': (t) => t.insert(3, '\n', { blockBreak: true }),
+  'Enter right at the caret': (t) => t.insert(5, '\n', { blockBreak: true }),
+  'text before the caret deleted': (t) => t.delete(1, 3),
+  'the text around the caret deleted': (t) => t.delete(3, 5),
+  'the block joined to the next': (t) => t.delete(t.toString().indexOf('\n'), 1),
+  'an attachment before the caret': (t) => t.insertEmbed(2, { attachment: { content: '<b>@m</b>', contentType: 'mention' } }),
+  'an attachment at the caret': (t) => t.insertEmbed(5, { attachment: { content: '<b>@m</b>', contentType: 'mention' } })
+}
+for (const [what, change] of Object.entries(hard)) {
+  for (const when of ['early', 'late']) {
+    test(`trix: a composition and a remote change to its block: ${what}, ${when}`, async ({ page, browserName }) => {
+      test.skip(browserName !== 'chromium', 'needs the DevTools protocol')
+      const errors = []
+      page.on('pageerror', (e) => errors.push(e.message))
+      if (process.env.STRICT) page.on('console', (m) => { if (m.text().includes('did not show what Y holds')) errors.push(m.text()) })
+      await open(page)
+      await caret(page, 0, 5)
+      const cdp = await page.context().newCDPSession(page)
+      const remote = async () => {
+        await page.evaluate((src) => {
+          const p = window.ytDemo.peers[1]
+          // eslint-disable-next-line no-eval
+          p.doc.transact(() => (0, eval)('(' + src + ')')(p.doc.getText('trix')), 'a peer')
+        }, change.toString())
+        await page.waitForTimeout(80)
+      }
+      await cdp.send('Input.imeSetComposition', { text: 'n', selectionStart: 1, selectionEnd: 1 })
+      if (when === 'early') await remote()
+      await cdp.send('Input.imeSetComposition', { text: 'に', selectionStart: 1, selectionEnd: 1 })
+      await cdp.send('Input.imeSetComposition', { text: 'にほん', selectionStart: 3, selectionEnd: 3 })
+      if (when === 'late') await remote()
+      await cdp.send('Input.insertText', { text: '日本' })
+      await page.waitForTimeout(150)
+      await page.keyboard.type('!')
+      await page.waitForTimeout(350)
+      const out = await converge(page)
+      // what was committed is there once, with the next key right after it, and nothing half-typed
+      expect(out.split('日本!').length).toBe(2)
+      expect(out.split('日本').length).toBe(2)
+      expect(out).not.toMatch(/に|ほ|ん/)
+      expect(errors).toEqual([])
+    })
+  }
+}
