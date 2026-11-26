@@ -150,6 +150,10 @@ Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 its text while two others edit at random: after each of their edits it has
 to be where a Yjs relative position taken beforehand says it is.
 
+`tests/undo.spec.js` has one user edit at random and then undo everything
+while two others put in numbered words: every word has to be there
+afterwards, and nothing the first user typed may be left.
+
 `tests/odd.spec.js` writes about sixty odd things into Y one at a time
 (values of the wrong type, names like `constructor`, control characters,
 half an emoji) and types next to each.
