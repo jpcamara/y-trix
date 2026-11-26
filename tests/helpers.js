@@ -125,13 +125,19 @@ export async function converge (page, n = 2, timeout = 5000) {
 }
 
 /**
- * Once nobody is editing, nobody writes: two editors that each tidy what
- * the other wrote would go on for ever. The documents' clocks have to stand
- * still.
+ * Once nobody is editing, the writing stops: two editors that each tidy
+ * what the other wrote would go on for ever. The documents' clocks have to
+ * come to a stand. (Not at once: an editor can have one thing left to write,
+ * a pasted file that has just finished loading.)
  */
 export async function quiet (page, ms = 500) {
   const clocks = () => page.evaluate(() => window.ytDemo.peers.map((p) => JSON.stringify(Array.from(window.ytDemo.Y.encodeStateVector(p.doc))) + '|' + JSON.stringify(window.ytDemo.Y.encodeStateAsUpdate(p.doc).length)))
-  const before = await clocks()
-  await page.waitForTimeout(ms)
-  expect(await clocks()).toEqual(before)
+  let before = await clocks()
+  for (let tries = 0; tries < 6; tries++) {
+    await page.waitForTimeout(ms)
+    const now = await clocks()
+    if (JSON.stringify(now) === JSON.stringify(before)) return
+    before = now
+  }
+  expect('the editors went on writing').toBe('the writing stopped')
 }
