@@ -93,3 +93,33 @@ for (const seed0 of (process.env.CARET_SEEDS || '1,2,3,4').split(',').map(Number
     expect(errors).toEqual([])
   })
 }
+
+// A caret is one place. Text someone else types exactly there must not come
+// out between the caret's two ends: it was drawn as that person's selection
+// over the other's new text.
+for (const what of ['typing', 'Enter and typing']) {
+  test(`trix: ${what} at somebody's caret is not drawn as their selection`, async ({ page }) => {
+    await open(page)
+    // Bob puts the caret after "Hello" and leaves it there
+    await caret(page, 1, 5)
+    await page.waitForTimeout(150)
+    const ends = () => page.evaluate(() => {
+      const [a, b] = window.ytDemo.peers
+      const Y = window.ytDemo.Y
+      const cursor = a.awareness.getStates().get(b.awareness.clientID).cursor
+      const index = (json) => Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(json), a.doc).index
+      return [index(cursor.anchor), index(cursor.head)]
+    })
+    expect(await ends()).toEqual([5, 5])
+    // Alice types right there
+    await caret(page, 0, 5)
+    if (what !== 'typing') { await page.keyboard.press('Enter'); await page.keyboard.press('Enter') }
+    await page.keyboard.type('Hey ya!')
+    await converge(page)
+    await page.waitForTimeout(150)
+    // Bob's caret is still one place, and stayed before what Alice typed
+    expect(await ends()).toEqual([5, 5])
+    expect(await page.evaluate(() => document.querySelectorAll('.y-trix-selection').length)).toBe(0)
+    expect(await page.evaluate(() => document.querySelectorAll('.y-trix-caret').length)).toBeGreaterThan(0)
+  })
+}

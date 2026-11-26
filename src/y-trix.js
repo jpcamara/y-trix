@@ -487,12 +487,24 @@ export class TrixBinding {
       if (fixed !== r.str) { r.str = fixed; split = true }
     }
     this.wroteMore = false
+    const clock = Y.getState(this.wdoc.store, this.wdoc.clientID)
     this.wdoc.transact(() => this.applyRuns(base, aRuns, bRuns, hint === undefined ? undefined : hint - base), this)
+    // Text typed inside a run of one format is written as text and nothing
+    // else, and lands as written. Anywhere else Yjs writes format markers
+    // beside it (to keep what is there from applying to the new text), and
+    // with other people's changes around, those can leave the neighbours
+    // reading differently. So: did this write make a format marker?
+    if (!this.wroteMore) {
+      const mine = this.wdoc.store.clients.get(this.wdoc.clientID) || []
+      for (let k = mine.length - 1; k >= 0 && mine[k].id.clock >= clock; k--) {
+        if (mine[k].content instanceof Y.ContentFormat) { this.wroteMore = true; break }
+      }
+    }
     // Yjs does not always leave a format as it was written (a block
     // attribute taken off a break can still be there afterwards). The
     // editor has to show what Y holds, so read the changed blocks back.
-    // (Not after plain typing within a line: that lands as it is written,
-    // and reading Y costs time in a long document.)
+    // (Not after typing that wrote text alone: reading Y costs time in a
+    // long document.)
     if (!split && this.wroteMore) {
       const mine = b.slice(p, b.length - s)
       const len = mine.reduce((n, block) => n + block.getLength(), 0)
@@ -1015,8 +1027,13 @@ export class TrixBinding {
     const range = this.safeSelectedRange()
     if (!range) return null
     const clamp = (i) => Math.max(0, Math.min(i, this.ytext.length))
+    // Both ends stay before what someone else types exactly there, which is
+    // also where the editor keeps its own caret through a remote change
+    // (see mapIndex). With one end of each kind, text typed at somebody's
+    // caret came out between the two, and was drawn as that person's
+    // selection over the new text.
     return {
-      anchor: Y.createRelativePositionFromTypeIndex(this.ytext, clamp(range[0])),
+      anchor: Y.createRelativePositionFromTypeIndex(this.ytext, clamp(range[0]), -1),
       head: Y.createRelativePositionFromTypeIndex(this.ytext, clamp(range[1]), -1)
     }
   }
