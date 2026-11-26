@@ -146,6 +146,10 @@ two editors on one `Y.Doc`.
 Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 (`FUZZ_NO_UNDO=1` drops undo from the op mix).
 
+`tests/caret.spec.js` holds one user's caret (or selection) to staying with
+its text while two others edit at random: after each of their edits it has
+to be where a Yjs relative position taken beforehand says it is.
+
 `tests/odd.spec.js` writes about sixty odd things into Y one at a time
 (values of the wrong type, names like `constructor`, control characters,
 half an emoji) and types next to each.
