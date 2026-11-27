@@ -73,6 +73,10 @@ This format is what other programs see when they read the `Y.Text`: a server tha
   for that moment the binding reads the caret from the page: a change from
   someone else right after a click used to put the caret back where it was
   before the click.
+- A selection made backwards (Shift and the left arrow) is put back
+  backwards after a remote change, in this editor and when the selection
+  is somewhere else on the page. A range alone runs forwards, and the next
+  Shift and arrow then moved the wrong end (seen in Firefox).
 - A format switched on or off with nothing selected (Italic, then type)
   lives in Trix's current attributes and not in the document. Trix drops
   it when the selection is set again, so the binding puts it back after a

@@ -1157,6 +1157,20 @@ export class TrixBinding {
     const domSel = win.getSelection()
     const focused = this.isFocused()
     const saved = !focused && domSel.rangeCount > 0 ? domSel.getRangeAt(0).cloneRange() : null
+    // (and which way it runs: a range alone would turn a selection made backwards around)
+    const ends = saved ? [domSel.anchorNode, domSel.anchorOffset, domSel.focusNode, domSel.focusOffset] : null
+    // A selection made from its end to its start (Shift and the left arrow):
+    // Trix sets a range, which runs forwards, and the next Shift and arrow
+    // would then move the wrong end.
+    let backwards = false
+    try {
+      if (focused && domSel.rangeCount > 0 && !domSel.isCollapsed && domSel.anchorNode && domSel.focusNode) {
+        const order = domSel.anchorNode.ownerDocument.createRange()
+        order.setStart(domSel.focusNode, domSel.focusOffset)
+        order.setEnd(domSel.anchorNode, domSel.anchorOffset)
+        backwards = !order.collapsed
+      }
+    } catch (e) {}
     const active = this.element.ownerDocument.activeElement
     // The focus in a text field (an attachment's caption, or a field
     // elsewhere on the page): its selection is the field's own, not a range
@@ -1204,13 +1218,24 @@ export class TrixBinding {
     if (this.controller.handlingInput) this.controller.render()
     if (focused && sel) {
       try { this.editor.setSelectedRange(sel) } catch (e) {}
+      try {
+        if (backwards && domSel.rangeCount > 0 && !domSel.isCollapsed) {
+          const range = domSel.getRangeAt(0)
+          domSel.setBaseAndExtent(range.endContainer, range.endOffset, range.startContainer, range.startOffset)
+        }
+      } catch (e) {}
     } else if (field && field.element === active && active.isConnected) {
       if (this.element.ownerDocument.activeElement !== active) active.focus({ preventScroll: true })
       try { active.setSelectionRange(Math.min(field.start, active.value.length), Math.min(field.end, active.value.length), field.direction || 'none') } catch (e) {}
     } else if (!focused) {
       if (saved && (domSel.rangeCount === 0 || !rangesEqual(domSel.getRangeAt(0), saved))) {
         domSel.removeAllRanges()
-        domSel.addRange(saved)
+        try {
+          if (!ends[0].isConnected || !ends[2].isConnected) throw new Error('gone')
+          domSel.setBaseAndExtent(ends[0], ends[1], ends[2], ends[3])
+        } catch (e) {
+          domSel.addRange(saved)
+        }
       }
       if (active && this.element.ownerDocument.activeElement !== active && active.focus) active.focus({ preventScroll: true })
     }

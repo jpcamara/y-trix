@@ -488,6 +488,24 @@ test('trix: a caption being typed is kept when someone types before the attachme
   expect(page.debugFailures).toEqual([])
 })
 
+test('trix: a selection made backwards with Shift and the arrow keys goes on backwards after someone else\'s change', async ({ page }) => {
+  await open(page)
+  await caret(page, 0, 10)
+  for (let k = 0; k < 3; k++) await page.keyboard.press('Shift+ArrowLeft')
+  const selected = () => page.evaluate(() => window.getSelection().toString())
+  expect(await selected()).toBe('orl')
+  // (the change is drawn by both editors of this page: the one the selection is in, and the other, which leaves the page's selection as it found it)
+  await page.evaluate(() => window.ytDemo.peers[1].doc.getText('trix').insert(0, 'QQ'))
+  await expect.poll(() => text(page, 0)).toContain('QQHello')
+  expect(await selected()).toBe('orl')
+  expect(await page.evaluate(() => { const s = window.getSelection(); const r = document.createRange(); r.setStart(s.focusNode, s.focusOffset); r.setEnd(s.anchorNode, s.anchorOffset); return !r.collapsed })).toBe(true)
+  await page.keyboard.press('Shift+ArrowLeft')
+  expect(await selected()).toBe('worl')
+  await page.keyboard.type('X')
+  await converge(page)
+  expect(await text(page, 1)).toContain('QQHello Xd. Edit')
+})
+
 test('trix: undoing an attachment attribute change gives every editor the old attachment', async ({ page }) => {
   await open(page)
   await caret(page, 0, 'end')
