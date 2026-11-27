@@ -794,6 +794,9 @@ export class TrixBinding {
     if (this.splitPending) {
       try { this.showSplit() } catch (e) { console.error('y-trix: redraw failed', e) }
     }
+    // (the caret was not published while holding: the others would go on
+    // being shown it before the text that was just composed)
+    if (this.onSelectionChange) this.onSelectionChange()
   }
 
   // ---- remote Yjs -> Trix ---------------------------------------------------

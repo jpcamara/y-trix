@@ -123,3 +123,23 @@ for (const what of ['typing', 'Enter and typing']) {
     expect(await page.evaluate(() => document.querySelectorAll('.y-trix-caret').length)).toBeGreaterThan(0)
   })
 }
+
+// Text that arrives without key events (in Firefox as a composition, which
+// is how an input method types): while a composition is held the caret is
+// not published, so it has to be when the composition is over.
+test('trix: the others are shown the caret after text that an input method put in', async ({ page }) => {
+  await open(page)
+  await caret(page, 0, 5)
+  const shown = () => page.evaluate(() => {
+    const [a, b] = window.ytDemo.peers
+    const Y = window.ytDemo.Y
+    const cursor = b.awareness.getStates().get(a.awareness.clientID).cursor
+    const at = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(cursor.anchor), b.doc)
+    return [a.editor.getSelectedRange()[0], at && at.index]
+  })
+  await page.keyboard.insertText('三')
+  await expect.poll(() => shown()).toEqual([6, 6])
+  await page.keyboard.insertText('丁七')
+  await expect.poll(() => shown()).toEqual([8, 8])
+  await converge(page)
+})
