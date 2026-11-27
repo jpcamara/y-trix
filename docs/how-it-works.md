@@ -73,6 +73,15 @@ This format is what other programs see when they read the `Y.Text`: a server tha
   for that moment the binding reads the caret from the page: a change from
   someone else right after a click used to put the caret back where it was
   before the click.
+- The reader's place: Trix makes all its nodes anew at every render, so
+  the browser does not keep what is on screen where it is, and lines that
+  someone adds above pushed what the user was reading or typing down the
+  screen. Before a remote change is shown the binding notes where the
+  blocks at the top of the visible part of the editor are, and afterwards
+  scrolls whatever scrolls (the editor, a box around it, or the page) by
+  as much as they moved. With the start of the document in view nothing is
+  scrolled. Two editors on one page that show the same change each scroll
+  the page for it.
 - A selection made backwards (Shift and the left arrow) is put back
   backwards after a remote change, in this editor and when the selection
   is somewhere else on the page. A range alone runs forwards, and the next

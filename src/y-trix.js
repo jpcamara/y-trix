@@ -1130,7 +1130,15 @@ export class TrixBinding {
     let locked = manager ? manager.lockedLocationRange : null
     // (Trix says the selection is held only after it has marked the text,
     // and it locks the selection for a moment whenever it renders)
-    if (locked && !this.controller.selectionFrozen && !this.composition.document.getBlocks().some((b) => b.text.getPieces().some((piece) => piece.getAttribute(FROZEN)))) locked = null
+    // (so look at the block the range starts in, and no further: this runs at every change)
+    if (locked && !this.controller.selectionFrozen) {
+      let marked = false
+      try {
+        const block = this.composition.document.getBlockAtIndex(locked[0].index)
+        marked = !!block && block.text.getPieces().some((piece) => piece.getAttribute(FROZEN))
+      } catch (e) {}
+      if (!marked) locked = null
+    }
     if (!locked || this.held) { this.frozen = null; return null }
     const clamp = (i) => Math.max(0, Math.min(i, this.ytext.length))
     if (!this.frozen || this.frozen.locked !== locked) {
@@ -1185,6 +1193,8 @@ export class TrixBinding {
       const inCaption = field !== null && field.nodeName === 'TEXTAREA' && this.element.contains(field)
       if (!inCaption) this.composition.stopEditingAttachment()
     }
+    // What the user is looking at stays where it is on the screen (see scrollAnchors).
+    const anchors = this.scrollAnchors()
     // A format switched on or off with nothing selected, for what is typed
     // next, is not in the document yet. Trix forgets it when the selection
     // is set again, so it is put back afterwards.
@@ -1250,9 +1260,92 @@ export class TrixBinding {
         }
       } catch (e) {}
     }
+    if (anchors) this.keepScroll(anchors)
     // Trix may adjust what it rendered (its attachment gallery filter); that
     // is a local change.
     if (this.composition.document !== this.lastDoc) this.flushLocal()
+  }
+
+  /**
+   * The blocks at the top of what is visible of the editor, with where they
+   * are on the screen. Trix makes all its nodes anew when it renders, so the
+   * browser does not keep the reader's place by itself: lines someone adds
+   * above push what the user is reading, or typing, down the screen. Null
+   * when the start of the document is in view.
+   */
+  scrollAnchors () {
+    try {
+      const el = this.element
+      const first = el.firstElementChild
+      if (!first) return null
+      const doc = el.ownerDocument
+      const box = el.getBoundingClientRect()
+      const top = Math.max(0, box.top)
+      const bottom = Math.min(doc.defaultView.innerHeight, box.bottom)
+      if (bottom <= top || first.getBoundingClientRect().bottom > top) return null
+      // the block at the top of what is visible: by the element that is there, or between blocks by the last child that starts above
+      let node = doc.elementFromPoint(box.left + Math.min(40, box.width / 2), top + 4)
+      if (!node || node === el || !el.contains(node)) {
+        const kids = el.children
+        let lo = 0
+        let hi = kids.length - 1
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1
+          if (kids[mid].getBoundingClientRect().top <= top + 4) lo = mid; else hi = mid - 1
+        }
+        node = kids[lo]
+      }
+      const at = this.controller.selectionManager.locationMapper.findLocationFromContainerAndOffset(node, 0)
+      if (!at || typeof at.index !== 'number') return null
+      const document = this.composition.document
+      const anchors = []
+      // (a block that does not change is the same object afterwards; the one at the top may be the one that changes)
+      for (let index = at.index; index < at.index + 4 && index < document.getBlockCount(); index++) {
+        const y = this.blockTop(index)
+        if (y !== null) anchors.push([document.getBlockAtIndex(index), y])
+      }
+      return anchors.length > 0 ? anchors : null
+    } catch (e) { return null }
+  }
+
+  /** Where the block with this index starts on the screen, or null. */
+  blockTop (index) {
+    const found = this.controller.selectionManager.findNodeAndOffsetFromLocation({ index, offset: 0 })
+    let node = found && found[0]
+    if (node && node.nodeType !== 1) node = node.parentElement
+    return node ? node.getBoundingClientRect().top : null
+  }
+
+  /** Scroll so that the first of the anchors that is still there is where it was. */
+  keepScroll (anchors) {
+    try {
+      const el = this.element
+      const blocks = this.composition.document.getBlocks()
+      let moved = null
+      let byText = null // for blocks that were made anew: where a block with that text is, if there is one such
+      for (const [block, y] of anchors) {
+        let index = blocks.indexOf(block)
+        if (index < 0) {
+          if (byText === null) {
+            byText = new Map()
+            blocks.forEach((b, k) => { const key = b.toString(); byText.set(key, byText.has(key) ? -1 : k) })
+          }
+          const at = byText.get(block.toString())
+          index = at === undefined ? -1 : at
+        }
+        const now = index < 0 ? null : this.blockTop(index)
+        if (now !== null) { moved = now - y; break }
+      }
+      if (moved === null || Math.abs(moved) < 1) return
+      const win = el.ownerDocument.defaultView
+      // what scrolls: the editor, a box around it, or the page
+      for (let box = el; box && box.nodeType === 1; box = box.parentElement) {
+        if (box === el.ownerDocument.body || box === el.ownerDocument.documentElement) break
+        const overflow = win.getComputedStyle(box).overflowY
+        if ((overflow === 'auto' || overflow === 'scroll') && box.scrollHeight > box.clientHeight) { box.scrollTop += moved; return }
+      }
+      win.scrollBy(0, moved)
+    } catch (e) {}
   }
 
   /**

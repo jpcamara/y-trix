@@ -506,6 +506,59 @@ test('trix: a selection made backwards with Shift and the arrow keys goes on bac
   expect(await text(page, 1)).toContain('QQHello Xd. Edit')
 })
 
+for (const boxed of [false, true]) {
+  test(`trix: what a reader far down a long document is looking at stays in place when someone adds lines above (${boxed ? 'the editor scrolls' : 'the page scrolls'})`, async ({ page }) => {
+    await open(page)
+    await page.evaluate((boxed) => {
+      const p = window.ytDemo.peers[0]
+      p.editor.loadHTML(Array.from({ length: 120 }, (_, i) => `<div>Paragraph ${i} of the long document</div>`).join(''))
+      if (boxed) { p.element.style.maxHeight = '300px'; p.element.style.overflowY = 'auto' }
+      // (one editor on the page: two that show the same change would each scroll the page for it)
+      window.ytDemo.peers[1].element.closest('.peer').style.display = 'none'
+    }, boxed)
+    await expect.poll(() => text(page, 1)).toContain('Paragraph 119')
+    const paragraph = (n) => page.locator('trix-editor').first().locator('div', { hasText: new RegExp(`^Paragraph ${n} `) })
+    const top = async (n) => Math.round((await paragraph(n).boundingBox()).y)
+    const remote = (fn) => page.evaluate(`(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); ${fn} })()`)
+    await paragraph(80).evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await page.waitForTimeout(200)
+    // reading: lines added at the top, one taken away, and a paragraph above that grows
+    let before = await top(80)
+    await remote(`for (let k = 0; k < 10; k++) t.insert(0, 'new line ' + k + '\\n', { blockBreak: true })`)
+    await expect.poll(() => text(page, 0)).toContain('new line 9')
+    expect(Math.abs(await top(80) - before)).toBeLessThanOrEqual(2)
+    await remote(`t.delete(0, 'new line 9\\n'.length); t.insert(t.toString().indexOf('Paragraph 3 '), 'A much longer text. '.repeat(40))`)
+    await expect.poll(() => text(page, 0)).toContain('A much longer text.')
+    expect(Math.abs(await top(80) - before)).toBeLessThanOrEqual(2)
+    // typing there: the line being typed in stays under the user's eyes
+    // (Firefox puts the caret of the click that gives a Trix editor the focus at the start of the document, bound or not, so click again)
+    await paragraph(80).click()
+    await paragraph(80).evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await paragraph(80).click()
+    await page.keyboard.type('x')
+    expect(await text(page, 0)).toMatch(/Paragraph 80 [^\n]*x[^\n]*\nParagraph 81/)
+    before = await top(80)
+    await remote(`for (let k = 0; k < 10; k++) t.insert(0, 'more ' + k + '\\n', { blockBreak: true })`)
+    await expect.poll(() => text(page, 0)).toContain('more 9')
+    expect(Math.abs(await top(80) - before)).toBeLessThanOrEqual(2)
+    await page.keyboard.type('y')
+    expect(Math.abs(await top(80) - before)).toBeLessThanOrEqual(2)
+    // and the line itself changed by someone else, with lines added above in the same change
+    const below = await top(81)
+    await remote(`t.doc.transact(() => { t.insert(t.toString().indexOf('Paragraph 80 '), 'Changed '); t.insert(0, 'last\\n', { blockBreak: true }) })`)
+    await expect.poll(() => text(page, 0)).toContain('Changed ')
+    expect(Math.abs(await top(81) - below)).toBeLessThanOrEqual(2)
+    await converge(page)
+    // at the start of the document nothing is scrolled: the new lines are what the user sees
+    await page.evaluate((boxed) => { if (boxed) window.ytDemo.peers[0].element.scrollTop = 0; else window.scrollTo(0, 0) }, boxed)
+    const scrolled = () => page.evaluate(() => [window.scrollY, window.ytDemo.peers[0].element.scrollTop])
+    const was = await scrolled()
+    await remote(`t.insert(0, 'first\\n', { blockBreak: true })`)
+    await expect.poll(() => text(page, 0)).toContain('first\n')
+    expect(await scrolled()).toEqual(was)
+  })
+}
+
 test('trix: undoing an attachment attribute change gives every editor the old attachment', async ({ page }) => {
   await open(page)
   await caret(page, 0, 'end')
