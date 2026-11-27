@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { open, html, text, caret, converge, docJSON } from './helpers.js'
+import { open, html, text, caret, converge, docJSON, quiet } from './helpers.js'
 
 const mod = 'ControlOrMeta'
 
@@ -264,6 +264,69 @@ test('trix: attachments sync, keep their identity, and take attribute changes', 
   await page.evaluate(() => window.img.setAttributes({ url: '/demo/assets/uploaded.png', href: '/demo/assets/uploaded.png' }))
   await converge(page)
   expect(await docJSON(page, 1)).toContain('uploaded.png')
+})
+
+test('trix: an image with no size is measured by every editor and is in the document once', async ({ page }) => {
+  // Trix loads an image and gives its attachment the width and height it
+  // finds, in every editor that shows it
+  const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAADCAYAAAC56t6BAAAAEklEQVR42mP8z8BQzwAEjDAGACcSA4Fp1rDhAAAAAElFTkSuQmCC' // 2 by 3
+  const redraws = []
+  page.on('console', (m) => { if (m.text().includes('did not show what Y holds')) redraws.push(m.text()) })
+  await open(page)
+  await page.evaluate(() => window.ytDemo.addPeer())
+  await page.fill('#delay', '60')
+  const embeds = (i) => page.evaluate((i) => window.ytDemo.peers[i].doc.getText('trix').toDelta().filter((d) => typeof d.insert !== 'string').map((d) => d.insert.attachment), i)
+  const sizes = () => page.evaluate(() => window.ytDemo.peers.map((p) => p.editor.getDocument().getAttachments().map((a) => [a.getAttribute('filename'), a.getWidth(), a.getHeight()])))
+  // put in by an editor: that editor shares the size
+  await caret(page, 0, 3)
+  await page.evaluate((PNG) => window.ytDemo.peers[0].editor.insertAttachment(new window.Trix.Attachment({ url: PNG, contentType: 'image/png', filename: 'a.png' })), PNG)
+  await expect.poll(() => sizes()).toEqual([[['a.png', 2, 3]], [['a.png', 2, 3]], [['a.png', 2, 3]]])
+  await quiet(page, 600)
+  await converge(page, 3)
+  for (let i = 0; i < 3; i++) expect(await embeds(i)).toEqual([{ url: PNG, contentType: 'image/png', filename: 'a.png', width: 2, height: 3 }])
+  // in the document without a size, as from a saved document: nobody writes it, everybody shows it
+  await page.evaluate((PNG) => window.ytDemo.peers[0].doc.getText('trix').insertEmbed(1, { attachment: { url: PNG + '#b', contentType: 'image/png', filename: 'b.png' } }), PNG)
+  await expect.poll(() => sizes()).toEqual([[['b.png', 2, 3], ['a.png', 2, 3]], [['b.png', 2, 3], ['a.png', 2, 3]], [['b.png', 2, 3], ['a.png', 2, 3]]])
+  await quiet(page, 600)
+  // typing next to it, a caption on it and a late joiner leave it as it is
+  await caret(page, 1, 2)
+  await page.keyboard.type('xy')
+  await page.evaluate(() => { const ed = window.ytDemo.peers[2].editor; ed.setSelectedRange([1, 2]); ed.activateAttribute('caption', 'a caption') })
+  await page.evaluate(() => window.ytDemo.addPeer())
+  await expect.poll(() => sizes().then((all) => all[3])).toEqual([['b.png', 2, 3], ['a.png', 2, 3]])
+  await quiet(page, 600)
+  await converge(page, 4)
+  for (let i = 0; i < 4; i++) expect((await embeds(i))[0]).toEqual({ url: PNG + '#b', contentType: 'image/png', filename: 'b.png' })
+  expect(await html(page, 3)).toContain('a caption')
+  expect(await html(page, 3)).toMatch(/<img[^>]*width="2" height="3"/)
+  // an editor changes something else on it: written once, still without the size nobody wrote
+  await page.evaluate(() => window.ytDemo.peers[1].editor.getDocument().getAttachments()[0].setAttributes({ href: 'https://example.com/b' }))
+  await quiet(page, 600)
+  await converge(page, 4)
+  for (let i = 0; i < 4; i++) expect(await embeds(i)).toEqual([{ url: PNG + '#b', contentType: 'image/png', filename: 'b.png', href: 'https://example.com/b' }, { url: PNG, contentType: 'image/png', filename: 'a.png', width: 2, height: 3 }])
+  expect(redraws).toEqual([])
+  expect(page.debugFailures).toEqual([])
+})
+
+test('trix: two people each put an image next to the same image: that image is there once', async ({ page }) => {
+  // Trix moves images that are next to each other into a block of their own
+  await open(page)
+  const image = (n) => `new window.Trix.Attachment({ url: "https://example.com/${n}.png", contentType: "image/png", filename: "${n}.png", filesize: 10, width: 4, height: 4 })`
+  await caret(page, 0, 5)
+  await page.evaluate(`window.ytDemo.peers[0].editor.insertAttachment(${image('first')})`)
+  await converge(page)
+  const at = await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().toString().indexOf('￼'))
+  await page.uncheck('#online')
+  await caret(page, 0, at)
+  await page.evaluate(`window.ytDemo.peers[0].editor.insertAttachment(${image('a')})`)
+  await caret(page, 1, at + 1)
+  await page.evaluate(`window.ytDemo.peers[1].editor.insertAttachment(${image('b')})`)
+  await page.check('#online')
+  await converge(page)
+  const names = await page.evaluate(() => window.ytDemo.peers[1].editor.getDocument().getAttachments().map((a) => a.getAttribute('filename')).sort())
+  expect(names).toEqual(['a.png', 'b.png', 'first.png'])
+  expect(await text(page, 0)).toContain('Hello')
+  expect((await text(page, 0)).replace(/[￼\s]/g, '')).toBe('Helloworld.Editmeineithereditor.Secondparagraph.')
 })
 
 test('trix: undoing an attachment attribute change gives every editor the old attachment', async ({ page }) => {

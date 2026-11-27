@@ -69,6 +69,16 @@ This format is what other programs see when they read the `Y.Text`: a server tha
 - Attachments keep their Trix `Attachment` object across remote rebuilds.
   An attribute change made in place (an upload finishing) is shared as a
   new embed.
+- Trix measures an image when it has loaded and gives an attachment that
+  has no `width` and `height` the ones it found. Every editor showing the
+  image does that. Only the editor the attachment was put in shares them;
+  an editor that got the attachment from the shared document keeps what it
+  measured to itself. (When all of them wrote it, the image was in the
+  document once per editor.)
+- The diff gives each different attachment a character of its own and
+  counts a kept character of text for more than a kept attachment or block
+  break, so that what stays is not taken out and written again: two people
+  doing that at the same moment would leave it in the document twice.
 - Cost at 2,000 blocks: about 0.15 ms of binding work per local change.
   A remote change costs about what a local keystroke costs (about 18 ms,
   nearly all Trix's own render).
@@ -116,6 +126,14 @@ dependency is Trix 2.1.15 or later, and the binding warns on anything older.
   depending on client order, and undo can restore format markers. Both peers
   get the same result. The binding treats block attributes on anything but a
   block break as noise.
+- An attachment whose attributes two people change at the same moment
+  (not its caption, which is kept apart) is in the document twice
+  afterwards, once with each change: a changed attachment is a new embed.
+  Set attributes in one editor, as an upload does.
+- An image that is in the shared document without `width` and `height`
+  and was not put in by an editor that is still open (one seeded on a
+  server, say) never gets them there. Each editor shows and saves it with
+  the size it measured; the plain `Y.Text` has it without.
 - A file attachment is shared before it is uploaded, without its file. Other
   peers see it once the app's upload handler sets `url`. Until then the
   editor that added it saves it with Trix's pending-upload marker and the

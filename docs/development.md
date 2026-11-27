@@ -66,7 +66,8 @@ afterwards, and nothing the first user typed may be left.
 `tests/keep.spec.js` has three users type and restructure the document
 around each other, nobody deleting anything, on a bad network with offline
 spells, and holds every character typed to being in the document exactly
-once at the end (`KEEP_SEEDS=1,2,3 KEEP_OPS=150`).
+once at the end (`KEEP_SEEDS=1,2,3 KEEP_OPS=150`). It also fails on any
+write that puts in text or an attachment the document already had.
 
 `tests/odd.spec.js` writes 56 odd things into Y one at a time
 (values of the wrong type, names like `constructor`, control characters,

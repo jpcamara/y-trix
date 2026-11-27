@@ -25,7 +25,6 @@
 import * as Y from 'yjs'
 import { textDiff } from './text-diff.js'
 
-const OBJECT = '￼' // Trix's (and our) string stand-in for an attachment
 
 const SURROGATE = /[\ud800-\udfff]/
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g
@@ -38,6 +37,23 @@ const stable = (v) => {
 const equal = (a, b) => a === b || stable(a) === stable(b)
 
 const isEmptyObject = (o) => !o || Object.keys(o).length === 0
+
+// Trix measures an image when it has loaded, and gives an attachment that
+// has no width and height the ones it found. Every editor showing the
+// attachment does that. Only the editor the attachment was put in writes
+// them to Y: an editor that got the attachment from Y keeps what it measured
+// to itself, or the attachment would be written once more by each of them
+// and be in the document that many times.
+const fromY = new WeakSet() // attachments made from an embed in Y
+const measured = new WeakMap() // such an attachment -> the { width, height } Trix found by loading it
+/** An attachment's attributes as they are shared. */
+const sharedAttrs = (attachment) => {
+  const attrs = attachment.getAttributes()
+  const own = measured.get(attachment)
+  if (!own || attrs.width !== own.width || attrs.height !== own.height) return attrs
+  const { width, height, ...rest } = attrs
+  return rest
+}
 
 /**
  * Y attributes of a block's break character. Trix can leave text attributes
@@ -61,7 +77,7 @@ const trixRuns = (blocks) => {
   for (const block of blocks) {
     for (const piece of block.text.getPieces()) {
       if (piece.attachment) {
-        runs.push({ embed: { attachment: piece.attachment.getAttributes() }, attrs: piece.getAttributes(), attachment: piece.attachment })
+        runs.push({ embed: { attachment: sharedAttrs(piece.attachment) }, attrs: piece.getAttributes(), attachment: piece.attachment })
       } else if (piece.isBlockBreak()) {
         runs.push({ str: '\n', attrs: breakAttrs(block, piece) })
       } else {
@@ -72,7 +88,18 @@ const trixRuns = (blocks) => {
   return runs
 }
 
-const runsString = (runs) => runs.map((r) => (r.embed ? OBJECT : r.str)).join('')
+/**
+ * Runs as a string to diff. Each different attachment is a character of its
+ * own (from the private use area), so that the diff keeps an attachment that
+ * is on both sides and does not take one for another.
+ * @param {Map<string, string>} seen attachments met so far and their characters
+ */
+const runsString = (runs, seen) => runs.map((r) => {
+  if (!r.embed) return r.str
+  const key = stable(r.embed)
+  if (!seen.has(key)) seen.set(key, String.fromCharCode(0xe000 + (seen.size % 6400)))
+  return seen.get(key)
+}).join('')
 
 /** Per-character view of runs: [run, offsetInRun] for each character. */
 const charIndex = (runs) => {
@@ -94,7 +121,7 @@ const blocksSig = (blocks) => stable(blocks.map((b) => {
     const attrs = stable(p.getAttributes())
     const last = runs[runs.length - 1]
     if (!p.attachment && last && typeof last[0] === 'string' && last[1] === attrs) last[0] += p.toString()
-    else runs.push([p.attachment ? { att: p.attachment.getAttributes() } : p.toString(), attrs])
+    else runs.push([p.attachment ? { att: sharedAttrs(p.attachment) } : p.toString(), attrs])
   }
   return [b.attributes, b.htmlAttributes || {}, runs]
 }))
@@ -531,8 +558,9 @@ export class TrixBinding {
    */
   applyRuns (base, aRuns, bRuns, cursor) {
     const ytext = this.wtext
-    const aStr = runsString(aRuns)
-    const bStr = runsString(bRuns)
+    const seen = new Map()
+    const aStr = runsString(aRuns, seen)
+    const bStr = runsString(bRuns, seen)
     const aChars = charIndex(aRuns)
     const bChars = charIndex(bRuns)
     const ops = textDiff(aStr, bStr, cursor !== undefined && cursor >= 0 && cursor <= bStr.length ? cursor : undefined)
@@ -620,8 +648,14 @@ export class TrixBinding {
     if (!range) return
     const pos = range[0]
     const [op] = sliceRuns(deltaRuns(this.ytext.toDelta()), pos, pos + 1)
-    const attrs = attachment.getAttributes()
-    if (!op || !op.embed || equal(op.embed.attachment, attrs)) return
+    if (!op || !op.embed) return
+    const had = op.embed.attachment || {}
+    const now = attachment.getAttributes()
+    if (fromY.has(attachment) && had.width === undefined && had.height === undefined && now.width !== undefined && now.height !== undefined) {
+      measured.set(attachment, { width: now.width, height: now.height })
+    }
+    const attrs = sharedAttrs(attachment)
+    if (equal(op.embed.attachment, attrs)) return
     const piece = document.getAttachmentPieceForAttachment(attachment)
     this.doc.transact(() => {
       const embed = { attachment: { ...attrs } }
@@ -740,8 +774,9 @@ export class TrixBinding {
         // Attachments change in place, so a remembered one can be newer than
         // its embed (undo brings the old embed back). Then make one from the
         // embed.
-        if (!att || !equal(att.getAttributes(), attachment)) {
+        if (!att || !equal(sharedAttrs(att), attachment)) {
           att = new Attachment(attachment)
+          fromY.add(att)
           this.attachments.set(r.embed, att)
         }
         pieces.push(new AttachmentPiece(att, pieceAttrs))
