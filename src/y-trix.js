@@ -1275,6 +1275,8 @@ export class TrixBinding {
       try { if (this.composition.document.getRangeOfAttachment(editing)) this.composition.editAttachment(editing) } catch (e) {}
     }
     if (anchors) this.keepScroll(anchors)
+    // (the caret can be at another place now, and nothing Trix said while this was going on was listened to)
+    if (this.onSelectionChange) this.onSelectionChange()
     // Trix may adjust what it rendered (its attachment gallery filter); that
     // is a local change.
     if (this.composition.document !== this.lastDoc) this.flushLocal()
@@ -1494,8 +1496,12 @@ export class TrixBinding {
       const json = sel ? { anchor: Y.relativePositionToJSON(sel.anchor), head: Y.relativePositionToJSON(sel.head) } : (cur.cursor || null)
       if (stable(cur.cursor) !== stable(json)) this.awareness.setLocalStateField('cursor', json)
     }
-    this.element.addEventListener('trix-selection-change', this.onSelectionChange)
-    this.element.addEventListener('trix-change', this.onSelectionChange)
+    // (and after a render: a change can move the caret without Trix saying
+    // that the selection changed. A block made a code block keeps the caret
+    // at the same place in its block, which is another place in the document.)
+    // (And when the focus comes back: a toolbar button takes it for a moment
+    // in some browsers, and what the button did happened while it was away.)
+    for (const type of ['trix-selection-change', 'trix-change', 'trix-render', 'focus']) this.element.addEventListener(type, this.onSelectionChange)
     this.onRender = () => this.renderCursors()
     this.awareness.on('change', this.onRender)
     this.element.addEventListener('trix-render', this.onRender)
@@ -1628,8 +1634,7 @@ export class TrixBinding {
     }
     if (this.awareness) {
       const doc = this.element.ownerDocument
-      this.element.removeEventListener('trix-selection-change', this.onSelectionChange)
-      this.element.removeEventListener('trix-change', this.onSelectionChange)
+      for (const type of ['trix-selection-change', 'trix-change', 'trix-render', 'focus']) this.element.removeEventListener(type, this.onSelectionChange)
       this.element.removeEventListener('trix-render', this.onRender)
       this.awareness.off('change', this.onRender)
       doc.defaultView.removeEventListener('resize', this.onRender)

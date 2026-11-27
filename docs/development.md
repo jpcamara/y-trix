@@ -67,6 +67,10 @@ mouse and keys, two others edit at random, and the user finishes; the
 selection, the key or the link has to be where Yjs positions taken
 beforehand say (`UI_SEEDS=1,2,3 UI_ROUNDS=40`).
 
+`tests/shown.spec.js` presses keys and toolbar buttons at random and holds
+the caret the others are shown to being where the user's own editor has
+it after each one (`SHOWN_SEEDS=1,2,3`).
+
 `tests/undo.spec.js` has one user edit at random and then undo everything
 while two others put in numbered words: every word has to be there
 afterwards, and nothing the first user typed may be left.
