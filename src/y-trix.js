@@ -415,8 +415,8 @@ export class TrixBinding {
     for (const type of ['input', 'keyup', 'mouseup', 'focusin']) element.ownerDocument.addEventListener(type, this.onFieldEvent, true)
     element.addEventListener('mousedown', this.onMouseDown)
     this.win = element.ownerDocument.defaultView
-    // (and if the button came up where no mouseup says so: the next move without it, or the window losing the focus)
-    for (const type of ['mouseup', 'dragend', 'drop', 'blur']) this.win.addEventListener(type, this.onMouseUp, true)
+    // (and if the button came up where no mouseup says so: a menu opening, the next move without it, or the window losing the focus)
+    for (const type of ['mouseup', 'dragend', 'drop', 'blur', 'contextmenu']) this.win.addEventListener(type, this.onMouseUp, true)
     this.win.addEventListener('mousemove', this.onMouseMove, true)
 
     // opts.undoManager: the app's own Y.UndoManager (one for several
@@ -1602,7 +1602,7 @@ export class TrixBinding {
     for (const type of ['input', 'keyup', 'mouseup', 'focusin']) this.element.ownerDocument.removeEventListener(type, this.onFieldEvent, true)
     this.element.removeEventListener('mousedown', this.onMouseDown)
     this.win.removeEventListener('mousemove', this.onMouseMove, true)
-    for (const type of ['mouseup', 'dragend', 'drop', 'blur']) this.win.removeEventListener(type, this.onMouseUp, true)
+    for (const type of ['mouseup', 'dragend', 'drop', 'blur', 'contextmenu']) this.win.removeEventListener(type, this.onMouseUp, true)
     this.element.removeEventListener('compositionstart', this.onCompositionStart)
     this.element.removeEventListener('compositionend', this.onCompositionEnd)
     this.element.removeEventListener('blur', this.onBlur)
