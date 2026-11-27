@@ -59,6 +59,14 @@ Fuzzing: `FUZZ_SEEDS=1,2,3 FUZZ_OPS=150 npx playwright test -g fuzz`
 its text while two others edit at random: after each of their edits it has
 to be where a Yjs relative position taken beforehand says it is.
 
+`tests/ui.spec.js` is about what a user is in the middle of: a click just
+made, a selection being dragged with the mouse, a selection made backwards
+with the keyboard, a format switched on for the next key, the link dialog
+with words selected. Each round the user starts one of these with the real
+mouse and keys, two others edit at random, and the user finishes; the
+selection, the key or the link has to be where Yjs positions taken
+beforehand say (`UI_SEEDS=1,2,3 UI_ROUNDS=40`).
+
 `tests/undo.spec.js` has one user edit at random and then undo everything
 while two others put in numbered words: every word has to be there
 afterwards, and nothing the first user typed may be left.
