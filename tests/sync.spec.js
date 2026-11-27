@@ -448,6 +448,46 @@ test('trix: a click, a mouse selection and a format for what is typed next survi
   expect(page.debugFailures).toEqual([])
 })
 
+test('trix: a caption being typed is kept when someone types before the attachment or changes it', async ({ page }) => {
+  await open(page)
+  const errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await caret(page, 0, 3)
+  await page.evaluate(() => window.ytDemo.peers[0].editor.insertAttachment(new window.Trix.Attachment({ url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', contentType: 'image/gif', filename: 'a.gif', filesize: 35, width: 30, height: 30 })))
+  await converge(page)
+  // A selects the attachment and types in its caption field
+  await page.locator('trix-editor').first().locator('figure').click()
+  await page.evaluate(() => window.ytDemo.peers[0].element.querySelector('textarea').focus())
+  await page.keyboard.type('my caption')
+  // B types before the attachment (in Safari the field then no longer got the keys)
+  await page.evaluate(() => window.ytDemo.peers[1].doc.getText('trix').insert(0, 'QQ'))
+  await page.waitForTimeout(300)
+  await page.keyboard.type(' more')
+  // B changes the attachment itself, as an upload that finishes does: A keeps the attachment it is editing
+  const id = await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().getAttachments()[0].id)
+  await page.evaluate(() => window.ytDemo.peers[1].editor.getDocument().getAttachments()[0].setAttributes({ href: 'https://example.com/x' }))
+  await page.waitForTimeout(300)
+  expect(await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().getAttachments()[0].id)).toBe(id)
+  expect(await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().getAttachments()[0].getAttribute('href'))).toBe('https://example.com/x')
+  // and where the caret was in the field, it still is
+  for (let k = 0; k < 15; k++) await page.keyboard.press('ArrowLeft')
+  await page.keyboard.type('>')
+  await page.evaluate(() => window.ytDemo.peers[1].doc.getText('trix').insert(0, 'RR'))
+  await page.waitForTimeout(300)
+  await page.keyboard.type('> ')
+  for (let k = 0; k < 15; k++) await page.keyboard.press('ArrowRight')
+  await page.keyboard.type(' end')
+  await page.keyboard.press('Enter')
+  await converge(page)
+  const embeds = await page.evaluate(() => window.ytDemo.peers[1].doc.getText('trix').toDelta().filter((d) => typeof d.insert !== 'string'))
+  expect(embeds).toHaveLength(1)
+  expect(embeds[0].attributes.caption).toBe('>> my caption more end')
+  expect(embeds[0].insert.attachment.href).toBe('https://example.com/x')
+  expect(await text(page, 1)).toContain('RRQQHel')
+  expect(errors).toEqual([])
+  expect(page.debugFailures).toEqual([])
+})
+
 test('trix: undoing an attachment attribute change gives every editor the old attachment', async ({ page }) => {
   await open(page)
   await caret(page, 0, 'end')

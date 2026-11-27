@@ -271,6 +271,8 @@ export class TrixBinding {
     }
     /** Y embed object -> Trix Attachment, so rebuilt blocks keep their attachments. */
     this.attachments = new WeakMap()
+    /** Attachments that a remote change replaced in place: they are changed to what their new embed says (see adoptReplaced). */
+    this.adopted = new WeakSet()
     this.applyingRemote = false
 
     // After every render Trix runs its editor filters, and the one it ships
@@ -398,6 +400,19 @@ export class TrixBinding {
       setTimeout(() => { if (!this.pressed && !this.composing) this.release() }, 0)
     }
     this.onMouseMove = (event) => { if (this.pressed && event.buttons === 0) this.onMouseUp() }
+    // Where the caret is in a text field that has the focus (see
+    // setDocumentRemote), noted when the user does something in it: after a
+    // render by Trix the field itself can say 0.
+    this.fieldCaret = null
+    this.onFieldEvent = (event) => {
+      const field = event.target
+      try {
+        if (field && field !== element && (field.nodeName === 'TEXTAREA' || field.nodeName === 'INPUT') && typeof field.selectionStart === 'number') {
+          this.fieldCaret = { element: field, start: field.selectionStart, end: field.selectionEnd, direction: field.selectionDirection }
+        }
+      } catch (e) {}
+    }
+    for (const type of ['input', 'keyup', 'mouseup', 'focusin']) element.ownerDocument.addEventListener(type, this.onFieldEvent, true)
     element.addEventListener('mousedown', this.onMouseDown)
     this.win = element.ownerDocument.defaultView
     for (const type of ['mouseup', 'dragend', 'drop']) this.win.addEventListener(type, this.onMouseUp, true)
@@ -819,6 +834,10 @@ export class TrixBinding {
           delete pieceAttrs.href
         }
         let att = this.attachments.get(r.embed)
+        if (att && this.adopted.has(att)) {
+          this.adopted.delete(att)
+          if (!equal(sharedAttrs(att), attachment)) this.changeAttachment(att, attachment)
+        }
         // Attachments change in place, so a remembered one can be newer than
         // its embed (undo brings the old embed back). Then make one from the
         // embed.
@@ -842,6 +861,58 @@ export class TrixBinding {
     flushText()
     if (pieces.length > 0) blocks.push(new Block(new Text(pieces)))
     return blocks
+  }
+
+  /**
+   * An attachment that someone replaced by another in the same place (that
+   * is how a changed attribute travels: an upload finishing) stays the
+   * object it is in this editor and is given the new attributes. With a new
+   * object, a caption this user is typing on it would be lost when they
+   * finish, and Trix throws there.
+   * @param {any[]} delta a change from Y that the editor does not show yet
+   */
+  adoptReplaced (delta) {
+    try {
+      let at = 0 // in the document the editor shows
+      for (let i = 0; i < delta.length; i++) {
+        const op = delta[i]
+        if (op.retain !== undefined) { at += op.retain; continue }
+        if (op.delete === undefined) continue
+        const put = [delta[i - 1], delta[i + 1]].find((o) => o && o.insert !== undefined && typeof o.insert !== 'string' && !this.attachments.has(o.insert))
+        if (op.delete === 1 && put && at < this.lastDoc.getLength()) {
+          const piece = this.lastDoc.getPieceAtPosition(at)
+          if (piece && piece.attachment) {
+            this.attachments.set(put.insert, piece.attachment)
+            this.adopted.add(piece.attachment)
+          }
+        }
+        at += op.delete
+      }
+    } catch (e) {}
+  }
+
+  /** Give an attachment the attributes of its embed, in place. */
+  changeAttachment (att, attrs) {
+    // (what this editor measured stays, if the embed still has no size)
+    const own = measured.get(att)
+    const want = own && attrs.width === undefined && attrs.height === undefined ? { ...attrs, ...own } : attrs
+    const flag = this.applyingRemote
+    this.applyingRemote = true
+    try {
+      att.setAttributes(want)
+      // (an attribute that is gone: Trix has no call for that, so take it
+      // out and tell Trix's views as setAttributes does)
+      let hash = att.attributes
+      for (const key of Object.keys(att.getAttributes())) if (!(key in want)) hash = hash.remove(key)
+      if (hash !== att.attributes) {
+        att.attributes = hash
+        att.didChangeAttributes()
+        if (att.previewDelegate && att.previewDelegate.attachmentDidChangeAttributes) att.previewDelegate.attachmentDidChangeAttributes(att)
+        if (att.delegate && att.delegate.attachmentDidChangeAttributes) att.delegate.attachmentDidChangeAttributes(att)
+      }
+    } catch (e) {} finally {
+      this.applyingRemote = flag
+    }
   }
 
   /**
@@ -976,6 +1047,7 @@ export class TrixBinding {
     }
     // (a selection held for a toolbar dialog that has not been seen yet: where it is after this change)
     this.frozenRange(event.delta)
+    if (this.composition.document === this.lastDoc) this.adoptReplaced(event.delta)
     // Changed range, in old and new coordinates.
     let oldPos = 0
     let newPos = 0
@@ -1085,6 +1157,11 @@ export class TrixBinding {
     const focused = this.isFocused()
     const saved = !focused && domSel.rangeCount > 0 ? domSel.getRangeAt(0).cloneRange() : null
     const active = this.element.ownerDocument.activeElement
+    // The focus in a text field (an attachment's caption, or a field
+    // elsewhere on the page): its selection is the field's own, not a range
+    // in the page. Putting a page range back takes the keyboard from the
+    // field in Safari, and what is typed next goes nowhere.
+    const field = this.fieldCaret && this.fieldCaret.element === active && !focused ? this.fieldCaret : null
     // Trix does not redraw while an attachment is selected for editing, so
     // nothing anyone else did would show until this user clicked away.
     // Deselect it, unless they are typing its caption.
@@ -1126,6 +1203,9 @@ export class TrixBinding {
     if (this.controller.handlingInput) this.controller.render()
     if (focused && sel) {
       try { this.editor.setSelectedRange(sel) } catch (e) {}
+    } else if (field && field.element === active && active.isConnected) {
+      if (this.element.ownerDocument.activeElement !== active) active.focus({ preventScroll: true })
+      try { active.setSelectionRange(Math.min(field.start, active.value.length), Math.min(field.end, active.value.length), field.direction || 'none') } catch (e) {}
     } else if (!focused) {
       if (saved && (domSel.rangeCount === 0 || !rangesEqual(domSel.getRangeAt(0), saved))) {
         domSel.removeAllRanges()
@@ -1390,6 +1470,7 @@ export class TrixBinding {
     if (this.onInitialize) this.element.removeEventListener('trix-initialize', this.onInitialize)
     this.element.removeEventListener('trix-file-accept', this.onFileAccept)
     if (this.verifyTimer) clearTimeout(this.verifyTimer)
+    for (const type of ['input', 'keyup', 'mouseup', 'focusin']) this.element.ownerDocument.removeEventListener(type, this.onFieldEvent, true)
     this.element.removeEventListener('mousedown', this.onMouseDown)
     this.element.removeEventListener('mousemove', this.onMouseMove)
     for (const type of ['mouseup', 'dragend', 'drop']) this.win.removeEventListener(type, this.onMouseUp, true)

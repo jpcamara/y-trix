@@ -89,7 +89,15 @@ This format is what other programs see when they read the `Y.Text`: a server tha
   `document.body`, at most once per animation frame.
 - Attachments keep their Trix `Attachment` object across remote rebuilds.
   An attribute change made in place (an upload finishing) is shared as a
-  new embed.
+  new embed. An editor that gets such a replacement keeps the object it
+  has and gives it the new attributes: with a new object, a caption its
+  user was typing on the attachment was lost, and Trix threw when they
+  finished.
+- The focus in a text field (an attachment's caption, a field elsewhere
+  on the page) stays there through a remote change, with its caret. The
+  binding notes the caret when the user does something in the field,
+  because the field itself can say 0 after Trix has rendered, and puts it
+  back. (Safari otherwise stopped sending the field the keys.)
 - Trix measures an image when it has loaded and gives an attachment that
   has no `width` and `height` the ones it found. Every editor showing the
   image does that. Only the editor the attachment was put in shares them;
