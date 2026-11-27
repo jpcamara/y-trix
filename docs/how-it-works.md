@@ -192,6 +192,12 @@ dependency is Trix 2.1.15 or later, and the binding warns on anything older.
   peers see it once the app's upload handler sets `url`. Until then the
   editor that added it saves it with Trix's pending-upload marker and the
   others do not.
+- Undo steps are meant to end where Trix's own would. With the pause that
+  also ends a step switched off they do in every short sequence tried; in
+  long random sessions of keys and toolbar buttons about one run in eight
+  has an undo that takes back more or less than Trix alone does (seen with
+  `tests/alone.spec.js` when undo and redo are added to its buttons). Not
+  explained yet. Everything is still undone in the end.
 - Yjs undo has two open bugs with nested types, yjs/yjs#823 (peers can
   diverge after undo) and yjs/yjs#809 (undo can throw). A single flat
   `Y.Text` does not seem to reach them: `node notes/yjs-undo-text.mjs` fuzzes
