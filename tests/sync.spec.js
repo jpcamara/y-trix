@@ -384,6 +384,70 @@ test('trix: the selection held while the link dialog is open is not shared and s
   expect(page.debugFailures).toEqual([])
 })
 
+test('trix: a click, a mouse selection and a format for what is typed next survive someone else\'s change', async ({ page }) => {
+  await open(page)
+  // where the character at `offset` of the last text node of the first block is on the page
+  const point = (offset) => page.evaluate((offset) => {
+    const node = window.ytDemo.peers[0].element.querySelector('div').lastChild
+    const r = document.createRange()
+    r.setStart(node, offset); r.setEnd(node, offset)
+    const b = r.getBoundingClientRect()
+    return { x: b.left, y: b.top + b.height / 2 }
+  }, offset)
+  const remote = (fn) => page.evaluate(`(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); ${fn} })()`)
+  // a click, and a change from someone else before Trix has looked at the selection again
+  // (it waits for the mouse to move, or a fifth of a second)
+  await caret(page, 0, 2)
+  let at = await point(10) // after ". Edit me "
+  await page.mouse.move(at.x, at.y)
+  await page.waitForTimeout(300)
+  await page.mouse.down()
+  await page.mouse.up()
+  await remote(`t.insert(0, 'QQ')`)
+  await expect.poll(() => text(page, 0)).toContain('QQHello')
+  await page.keyboard.type('X')
+  await converge(page)
+  expect(await text(page, 1)).toContain('QQHello world. Edit me Xin either editor.')
+  // a selection being made with the mouse when someone's change comes: it is shown when the button is up
+  const from = await point(2)
+  const to = await point(9) // "Edit me"
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move((from.x + to.x) / 2, from.y, { steps: 4 })
+  await remote(`t.insert(0, 'RR'); t.insert(t.toString().indexOf('either'), 'ZZ ')`)
+  await page.waitForTimeout(200)
+  expect(await text(page, 0)).not.toContain('RR')
+  await page.mouse.move(to.x, to.y, { steps: 4 })
+  await page.mouse.up()
+  await expect.poll(() => text(page, 0)).toContain('RRQQHello')
+  expect(await page.evaluate(() => { const ed = window.ytDemo.peers[0].editor; const r = ed.getSelectedRange(); return ed.getDocument().toString().slice(r[0], r[1]) })).toBe('Edit me')
+  expect(await page.evaluate(() => window.getSelection().toString())).toBe('Edit me')
+  await page.keyboard.type('Y')
+  await converge(page)
+  expect(await text(page, 1)).toContain('RRQQHello world. Y Xin ZZ either editor.')
+  // italic switched on with nothing selected, then a change from someone else, then typing
+  await caret(page, 0, 4)
+  const toolbar = '#' + await page.evaluate(() => window.ytDemo.peers[0].element.toolbarElement.id)
+  await page.locator(`${toolbar} [data-trix-attribute=italic]`).click()
+  await remote(`t.insert(0, 'SS'); t.insert(t.toString().indexOf('either'), 'WW ')`)
+  await expect.poll(() => text(page, 0)).toContain('SSRR')
+  expect(await page.evaluate(() => window.ytDemo.peers[0].editor.attributeIsActive('italic'))).toBe(true)
+  await expect(page.locator(`${toolbar} [data-trix-attribute=italic]`)).toHaveClass(/trix-active/)
+  await page.keyboard.type('abc')
+  await converge(page)
+  expect(await html(page, 1)).toContain('SSRRQQ<em>abc</em>Hello')
+  // and bold switched off inside bold text
+  const bold = (await text(page, 0)).indexOf('world') + 2
+  await caret(page, 0, bold)
+  await page.locator(`${toolbar} [data-trix-attribute=bold]`).click()
+  await remote(`t.insert(0, 'TT')`)
+  await expect.poll(() => text(page, 0)).toContain('TTSS')
+  await page.keyboard.type('def')
+  await converge(page)
+  expect(await html(page, 1)).toContain('<strong>wo</strong>def<strong>rld</strong>')
+  expect(page.debugFailures).toEqual([])
+})
+
 test('trix: undoing an attachment attribute change gives every editor the old attachment', async ({ page }) => {
   await open(page)
   await caret(page, 0, 'end')

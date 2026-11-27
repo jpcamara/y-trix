@@ -64,6 +64,19 @@ This format is what other programs see when they read the `Y.Text`: a server tha
 - Trix does not redraw while an attachment is selected for editing. When a
   remote change arrives the binding deselects it, unless the user is typing
   its caption, so that other people's changes show.
+- The mouse: while the button is down in the editor the browser is making
+  a selection from the nodes that are there, and a render by Trix would
+  replace them (the selection then came out short, or from the top of the
+  document in Firefox). Remote changes wait until the button is up, the
+  way they wait during a composition. After a press Trix also stops
+  following the selection until the mouse moves or 200 ms have passed, so
+  for that moment the binding reads the caret from the page: a change from
+  someone else right after a click used to put the caret back where it was
+  before the click.
+- A format switched on or off with nothing selected (Italic, then type)
+  lives in Trix's current attributes and not in the document. Trix drops
+  it when the selection is set again, so the binding puts it back after a
+  remote change.
 - While a toolbar dialog is open (the link field) Trix holds the selection:
   it marks the selected text with a `frozen` attribute, which shows it
   highlighted, and keeps the range as fixed positions. Neither is content.

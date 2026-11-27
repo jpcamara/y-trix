@@ -372,12 +372,36 @@ export class TrixBinding {
     this.onCompositionEnd = () => {
       this.composing = false
       // after Trix (and Safari's late insertFromComposition) have finished
-      setTimeout(() => { if (!this.composing) { this.release(); endComposeStep() } }, 0)
+      setTimeout(() => { if (!this.composing) { if (!this.pressed) this.release(); endComposeStep() } }, 0)
     }
-    this.onBlur = () => { if (!this.composing) { this.release(); endComposeStep() } }
+    this.onBlur = () => { if (!this.composing) { this.pressed = false; this.release(); endComposeStep() } }
     element.addEventListener('compositionstart', this.onCompositionStart)
     element.addEventListener('compositionend', this.onCompositionEnd)
     element.addEventListener('blur', this.onBlur)
+
+    // While the mouse button is down in the editor the browser is making a
+    // selection from the nodes that are there. A render by Trix replaces
+    // them, and the selection comes out wrong (in Firefox it then starts at
+    // the top of the document). So remote changes wait until the button is
+    // up, as they do during a composition. (After dragging text there is no
+    // mouseup: the drag's end says it.)
+    this.pressed = false
+    this.onMouseDown = (event) => {
+      if (event.button !== 0) return
+      this.pressed = true
+      this.hold()
+    }
+    this.onMouseUp = () => {
+      if (!this.pressed) return
+      this.pressed = false
+      // (after Trix has seen the event too)
+      setTimeout(() => { if (!this.pressed && !this.composing) this.release() }, 0)
+    }
+    this.onMouseMove = (event) => { if (this.pressed && event.buttons === 0) this.onMouseUp() }
+    element.addEventListener('mousedown', this.onMouseDown)
+    this.win = element.ownerDocument.defaultView
+    for (const type of ['mouseup', 'dragend', 'drop']) this.win.addEventListener(type, this.onMouseUp, true)
+    element.addEventListener('mousemove', this.onMouseMove)
 
     // opts.undoManager: the app's own Y.UndoManager (one for several
     // editors, say). It is told to track this binding, and is the app's to
@@ -452,7 +476,17 @@ export class TrixBinding {
   }
 
   safeSelectedRange () {
-    try { return this.composition.getSelectedRange() || null } catch (e) { return null }
+    try {
+      // After a mouse press Trix stops following the selection until the
+      // mouse moves or a fifth of a second has passed. What it says then is
+      // where the caret was before the click, so ask the page.
+      const manager = this.controller.selectionManager
+      if (manager && manager.paused && !manager.lockedLocationRange) {
+        const now = manager.getLocationRange({ strict: false })
+        if (now) return this.composition.document.rangeFromLocationRange(now)
+      }
+      return this.composition.getSelectedRange() || null
+    } catch (e) { return null }
   }
 
   // ---- local Trix -> Yjs ----------------------------------------------------
@@ -1059,6 +1093,10 @@ export class TrixBinding {
       const inCaption = field !== null && field.nodeName === 'TEXTAREA' && this.element.contains(field)
       if (!inCaption) this.composition.stopEditingAttachment()
     }
+    // A format switched on or off with nothing selected, for what is typed
+    // next, is not in the document yet. Trix forgets it when the selection
+    // is set again, so it is put back afterwards.
+    const pending = this.pendingAttributes()
     // A selection held for a toolbar dialog goes where its text went, with
     // its highlight (blocks made from Y have none).
     const frozen = this.frozenRange()
@@ -1095,9 +1133,41 @@ export class TrixBinding {
       }
       if (active && this.element.ownerDocument.activeElement !== active && active.focus) active.focus({ preventScroll: true })
     }
+    if (pending) {
+      try {
+        const range = this.composition.getSelectedRange()
+        if (range && range[0] === range[1]) {
+          const attrs = { ...this.composition.currentAttributes }
+          for (const key of Object.keys(pending)) { if (pending[key] === null) delete attrs[key]; else attrs[key] = pending[key] }
+          this.composition.currentAttributes = attrs
+          this.composition.notifyDelegateOfCurrentAttributesChange()
+        }
+      } catch (e) {}
+    }
     // Trix may adjust what it rendered (its attachment gallery filter); that
     // is a local change.
     if (this.composition.document !== this.lastDoc) this.flushLocal()
+  }
+
+  /**
+   * The text formats the user has switched on or off at the caret for what
+   * they type next: how Trix's current attributes differ from those of the
+   * text at the caret (null for one switched off). Null if there are none.
+   */
+  pendingAttributes () {
+    try {
+      const range = this.composition.getSelectedRange()
+      if (!range || range[0] !== range[1]) return null
+      const now = this.composition.currentAttributes || {}
+      const there = this.composition.document.getCommonAttributesAtRange(range) || {}
+      const known = this.config.textAttributes
+      const pending = {}
+      for (const key of Object.keys(known)) {
+        if (key === FROZEN || equal(now[key], there[key])) continue
+        pending[key] = now[key] === undefined ? null : now[key]
+      }
+      return isEmptyObject(pending) ? null : pending
+    } catch (e) { return null }
   }
 
   /**
@@ -1320,6 +1390,9 @@ export class TrixBinding {
     if (this.onInitialize) this.element.removeEventListener('trix-initialize', this.onInitialize)
     this.element.removeEventListener('trix-file-accept', this.onFileAccept)
     if (this.verifyTimer) clearTimeout(this.verifyTimer)
+    this.element.removeEventListener('mousedown', this.onMouseDown)
+    this.element.removeEventListener('mousemove', this.onMouseMove)
+    for (const type of ['mouseup', 'dragend', 'drop']) this.win.removeEventListener(type, this.onMouseUp, true)
     this.element.removeEventListener('compositionstart', this.onCompositionStart)
     this.element.removeEventListener('compositionend', this.onCompositionEnd)
     this.element.removeEventListener('blur', this.onBlur)
