@@ -56,7 +56,8 @@ This format is what other programs see when they read the `Y.Text`: a server tha
   what the editor shows. During a composition that shadow stops following
   the real doc, local changes are written to it and passed on, and remote
   changes are shown when the composition ends. The shadow is created at the
-  first composition, so it costs nothing until an input method is used.
+  first composition or the first mouse press in the editor (see the mouse,
+  below), so it costs nothing in an editor that is only read.
 - Emoji: positions are UTF-16 offsets, as in Trix, and the API allows an
   edit between the two halves of an emoji (a caret cannot get there). Yjs
   cannot send half a pair, so the binding writes U+FFFD for each half and
