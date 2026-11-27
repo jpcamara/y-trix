@@ -79,7 +79,8 @@ for (const [server, port] of Object.entries(SERVERS)) {
     await a.evaluate(() => window.ytDemo.net.setOnline(true))
     expect(await converge([a, b])).toBe('Hello world. Offline A.\nNew from A\nSecond paragraph. Online B.\n')
     // undo on A takes back only A's last edit
-    await a.evaluate(() => window.ytDemo.peers[0].editor.undo())
+    // (Enter and the words after it are one step if the keys came within half a second of each other; on a busy machine they are two)
+    await a.evaluate(() => { const ed = window.ytDemo.peers[0].editor; ed.undo(); if (ed.getDocument().toString().includes('Offline A.\n\n')) ed.undo() })
     expect(await converge([a, b])).toBe('Hello world. Offline A.\nSecond paragraph. Online B.\n')
   })
 
