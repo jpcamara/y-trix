@@ -1,7 +1,7 @@
 // What a user is in the middle of has to survive what the others do: a click
 // that has just been made, a selection being dragged with the mouse, a
 // selection made backwards with the keyboard, a format switched on for the
-// next key, the link dialog with words selected. Each round the user starts
+// next key, the link dialog with words selected, an image clicked. Each round the user starts
 // one of these with real mouse and keys, two others edit at random in Y, and
 // the user finishes. Where the ends of a selection belong is told by Yjs
 // relative positions taken before the others' edits.
@@ -86,7 +86,7 @@ for (const seed0 of (process.env.UI_SEEDS || '1,2,3').split(',').map(Number)) {
     for (let round = 0; round < Number(process.env.UI_ROUNDS || 30); round++) {
       const len = await page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().getLength())
       const at = rand(len)
-      const kind = ['click', 'drag', 'backwards', 'format', 'dialog'][rand(5)]
+      const kind = ['click', 'drag', 'backwards', 'format', 'dialog', 'attachment'][rand(6)]
       await caret(page, 0, 0).catch(() => {})
       if (kind === 'click') {
         const p = await point(at)
@@ -130,6 +130,33 @@ for (const seed0 of (process.env.UI_SEEDS || '1,2,3').split(',').map(Number)) {
         const now = await noted()
         const sel = await selection()
         if (now.alive) judge(kind, !!sel.range && sel.range[0] === now.want[0] && sel.range[1] === now.want[1], { round, did, had: had.range, want: now.want, got: sel.range })
+      } else if (kind === 'attachment') {
+        // an image is clicked, the others edit, and Backspace takes out that image and nothing else
+        const where = () => page.evaluate(() => { let pos = 0; for (const op of window.ytDemo.peers[0].doc.getText('trix').toDelta()) { if (typeof op.insert !== 'string') return pos; pos += op.insert.length } return -1 })
+        if (await where() < 0) {
+          await caret(page, 0, at)
+          await page.evaluate((round) => window.ytDemo.peers[0].editor.insertAttachment(new window.Trix.Attachment({ url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', contentType: 'image/gif', filename: round + '.gif', filesize: 35, width: 40, height: 40 })), round)
+          await page.evaluate(() => window.ytDemo.syncAll())
+          await page.waitForTimeout(60)
+        }
+        const figure = page.locator('trix-editor').first().locator('figure img').first()
+        if (!(await figure.click({ timeout: 2000 }).then(() => true, () => false))) continue
+        const state = () => page.evaluate(() => { const ed = window.ytDemo.peers[0].editor; return { editing: !!ed.composition.editingAttachment, range: ed.getSelectedRange(), count: ed.getDocument().getAttachments().length, text: ed.getDocument().toString().replace(/[\ufffc\n]/g, '') } })
+        const had = await state()
+        if (!had.editing) continue
+        const did = await others()
+        await page.waitForTimeout(60)
+        const now = await state()
+        const pos = await where()
+        // (someone can have deleted it)
+        if (now.count === 1 && pos >= 0) {
+          judge(kind, now.editing && now.range[0] === pos && now.range[1] === pos + 1, { round, did, had, now, pos })
+          await page.keyboard.press('Backspace')
+          await page.waitForTimeout(40)
+          const after = await state()
+          // (the text is as it was; a block that held only the image can go with it)
+          judge('Backspace on a selected attachment', after.count === 0 && after.text === now.text, { round, did, now, after })
+        }
       } else if (kind === 'backwards') {
         await caret(page, 0, at)
         const steps = 1 + rand(5)
