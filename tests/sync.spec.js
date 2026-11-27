@@ -329,6 +329,61 @@ test('trix: two people each put an image next to the same image: that image is t
   expect((await text(page, 0)).replace(/[￼\s]/g, '')).toBe('Helloworld.Editmeineithereditor.Secondparagraph.')
 })
 
+test('trix: the selection held while the link dialog is open is not shared and stays with its words', async ({ page }) => {
+  await open(page)
+  const errors = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  const toolbar = '#' + await page.evaluate(() => window.ytDemo.peers[0].element.toolbarElement.id)
+  const y = (i) => page.evaluate((i) => JSON.stringify(window.ytDemo.peers[i].doc.getText('trix').toDelta()), i)
+  const openDialog = async (from, to) => {
+    await caret(page, 0, from)
+    await page.evaluate((range) => window.ytDemo.peers[0].editor.setSelectedRange(range), [from, to])
+    await page.locator(`${toolbar} [data-trix-attribute=href]`).first().click()
+    await expect(page.locator(`${toolbar} input[name=href]`)).toBeVisible()
+  }
+  // A selects "world" and opens the dialog: Trix marks the words for itself only
+  await openDialog(6, 11)
+  expect(await html(page, 0)).toContain('highlight')
+  await page.waitForTimeout(100)
+  for (const i of [0, 1]) expect(await y(i)).not.toContain('frozen')
+  expect(await html(page, 1)).not.toContain('highlight')
+  expect(await page.evaluate(() => window.ytDemo.peers[0].editor.canUndo())).toBe(false)
+  // B types before the words and inside them
+  await page.evaluate(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); t.insert(0, 'XX'); t.insert(10, 'yy') })
+  await expect.poll(() => text(page, 0)).toContain('XXHello woyyrld')
+  expect(await html(page, 0)).toMatch(/<strong style="background-color: highlight;">woyyrld<\/strong>/)
+  await page.locator(`${toolbar} input[name=href]`).fill('https://example.com/')
+  await page.locator(`${toolbar} input[name=href]`).press('Enter')
+  await converge(page)
+  for (const i of [0, 1]) expect(await html(page, i)).toContain('XXHello <a href="https://example.com/"><strong>woyyrld</strong></a>. Edit')
+  for (const i of [0, 1]) expect(await y(i)).not.toContain('frozen')
+  expect(await html(page, 0)).not.toContain('highlight')
+  // the dialog closed without a link, after someone changed the paragraph: nothing is left marked
+  const at = (await text(page, 0)).indexOf('Second')
+  await openDialog(at, at + 6)
+  await page.evaluate(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); t.insert(t.toString().indexOf('Second'), 'The ') })
+  await expect.poll(() => html(page, 0)).toMatch(/The <span style="background-color: highlight;">Second<\/span> paragraph/)
+  await page.keyboard.press('Escape')
+  await converge(page)
+  expect(await html(page, 0)).not.toContain('highlight')
+  expect(await page.evaluate(() => window.ytDemo.peers[0].editor.getSelectedRange())).toEqual([at + 4, at + 10])
+  // the words deleted by someone while the dialog is open: the address is put in where they were, as Trix does with nothing selected
+  await openDialog(at + 4, at + 10)
+  await page.evaluate(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); t.delete(t.toString().indexOf('The Second'), 14) })
+  await expect.poll(() => text(page, 0)).not.toContain('Second')
+  await page.locator(`${toolbar} input[name=href]`).fill('https://example.com/gone')
+  await page.locator(`${toolbar} input[name=href]`).press('Enter')
+  await caret(page, 0, 'end')
+  await page.keyboard.type('!')
+  await converge(page)
+  expect(await text(page, 1)).toContain('\nhttps://example.com/goneagraph.!')
+  expect(await html(page, 1)).toContain('<a href="https://example.com/gone">https://example.com/gone</a>agraph.!')
+  for (const i of [0, 1]) expect(await y(i)).not.toContain('frozen')
+  for (const i of [0, 1]) expect(await html(page, i)).not.toContain('highlight')
+  expect(errors).toEqual([])
+  expect(page.debugFailures).toEqual([])
+})
+
 test('trix: undoing an attachment attribute change gives every editor the old attachment', async ({ page }) => {
   await open(page)
   await caret(page, 0, 'end')

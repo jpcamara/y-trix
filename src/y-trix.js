@@ -55,12 +55,25 @@ const sharedAttrs = (attachment) => {
   return rest
 }
 
+// While a toolbar dialog is open (the link field) Trix holds the selection:
+// it marks the selected text `frozen`, which shows it highlighted, and keeps
+// the range as fixed positions. That is one editor's selection, not
+// content: `frozen` is never written to Y and never taken from it.
+const FROZEN = 'frozen'
+/** A piece's attributes as they are shared. */
+const sharedPieceAttrs = (piece) => {
+  const attrs = piece.getAttributes()
+  if (!(FROZEN in attrs)) return attrs
+  const { [FROZEN]: _, ...rest } = attrs
+  return rest
+}
+
 /**
  * Y attributes of a block's break character. Trix can leave text attributes
  * on the break piece (bold applied across a block boundary), so they are kept.
  */
 const breakAttrs = (block, piece) => {
-  const attrs = { ...piece.getAttributes(), blockBreak: true }
+  const attrs = { ...sharedPieceAttrs(piece), blockBreak: true }
   delete attrs.block
   delete attrs.html
   if (block.attributes.length > 0) attrs.block = block.attributes.slice()
@@ -77,11 +90,11 @@ const trixRuns = (blocks) => {
   for (const block of blocks) {
     for (const piece of block.text.getPieces()) {
       if (piece.attachment) {
-        runs.push({ embed: { attachment: sharedAttrs(piece.attachment) }, attrs: piece.getAttributes(), attachment: piece.attachment })
+        runs.push({ embed: { attachment: sharedAttrs(piece.attachment) }, attrs: sharedPieceAttrs(piece), attachment: piece.attachment })
       } else if (piece.isBlockBreak()) {
         runs.push({ str: '\n', attrs: breakAttrs(block, piece) })
       } else {
-        runs.push({ str: piece.toString(), attrs: piece.getAttributes() })
+        runs.push({ str: piece.toString(), attrs: sharedPieceAttrs(piece) })
       }
     }
   }
@@ -118,7 +131,7 @@ const charIndex = (runs) => {
 const blocksSig = (blocks) => stable(blocks.map((b) => {
   const runs = []
   for (const p of b.text.getPieces()) {
-    const attrs = stable(p.getAttributes())
+    const attrs = stable(sharedPieceAttrs(p))
     const last = runs[runs.length - 1]
     if (!p.attachment && last && typeof last[0] === 'string' && last[1] === attrs) last[0] += p.toString()
     else runs.push([p.attachment ? { att: sharedAttrs(p.attachment) } : p.toString(), attrs])
@@ -451,9 +464,10 @@ export class TrixBinding {
    *   an ambiguous edit where the user made it
    */
   flushLocal (hint) {
-    if (!this.debug) { this.writeLocal(hint); return }
+    if (!this.debug) { this.writeLocal(hint); this.frozenRange(); return }
     const before = this.debugState()
     this.writeLocal(hint)
+    this.frozenRange()
     this.check('local', before + ' hint ' + hint)
   }
 
@@ -661,7 +675,7 @@ export class TrixBinding {
       const embed = { attachment: { ...attrs } }
       this.attachments.set(embed, attachment)
       this.ytext.delete(pos, 1)
-      this.ytext.insertEmbed(pos, embed, piece ? piece.getAttributes() : op.attrs)
+      this.ytext.insertEmbed(pos, embed, piece ? sharedPieceAttrs(piece) : op.attrs)
     }, this)
   }
 
@@ -805,7 +819,7 @@ export class TrixBinding {
     const known = this.config.textAttributes
     const out = {}
     for (const key of Object.keys(attrs)) {
-      if (key === 'blockBreak' || key === 'block' || key === 'html') continue
+      if (key === 'blockBreak' || key === 'block' || key === 'html' || key === FROZEN) continue
       const v = attrs[key]
       if (attachment && PIECE_STRINGS.has(key)) { if (typeof v === 'string') out[key] = v; continue }
       if (!Object.prototype.hasOwnProperty.call(known, key)) continue
@@ -926,6 +940,8 @@ export class TrixBinding {
     if (this.composition.document !== this.lastDoc) {
       console.warn('y-trix: unsynced local change while applying a remote update')
     }
+    // (a selection held for a toolbar dialog that has not been seen yet: where it is after this change)
+    this.frozenRange(event.delta)
     // Changed range, in old and new coordinates.
     let oldPos = 0
     let newPos = 0
@@ -996,6 +1012,34 @@ export class TrixBinding {
   }
 
   /**
+   * The range Trix holds as selected while a toolbar dialog is open, in Y
+   * positions, or null. Trix keeps it as fixed positions; here it is kept as
+   * Yjs positions from the first time it is seen, so that it stays with its
+   * text through other people's changes (see setDocumentRemote).
+   * @param {any[]} [delta] a change Y has had that the editor does not show yet
+   */
+  frozenRange (delta) {
+    const manager = this.controller.selectionManager
+    let locked = manager ? manager.lockedLocationRange : null
+    // (Trix says the selection is held only after it has marked the text,
+    // and it locks the selection for a moment whenever it renders)
+    if (locked && !this.controller.selectionFrozen && !this.composition.document.getBlocks().some((b) => b.text.getPieces().some((piece) => piece.getAttribute(FROZEN)))) locked = null
+    if (!locked || this.held) { this.frozen = null; return null }
+    const clamp = (i) => Math.max(0, Math.min(i, this.ytext.length))
+    if (!this.frozen || this.frozen.locked !== locked) {
+      let range
+      try { range = this.lastDoc.rangeFromLocationRange(locked) } catch (e) { return null }
+      if (!range) return null
+      if (delta) range = range.map((i) => mapIndex(delta, i))
+      // (the start stays after what is typed just before it, the end before what is typed just after)
+      this.frozen = { locked, rel: [Y.createRelativePositionFromTypeIndex(this.ytext, clamp(range[0]), 0), Y.createRelativePositionFromTypeIndex(this.ytext, clamp(range[1]), -1)] }
+    }
+    const abs = this.frozen.rel.map((rel) => Y.createAbsolutePositionFromRelativePosition(rel, this.doc))
+    if (abs.some((a) => a === null || a.type !== this.ytext)) return null
+    return [abs[0].index, Math.max(abs[0].index, abs[1].index)]
+  }
+
+  /**
    * Show a document built from Y without treating it as a local change, and
    * without disturbing the page selection when this editor is not focused.
    * @param {any} document
@@ -1015,6 +1059,13 @@ export class TrixBinding {
       const inCaption = field !== null && field.nodeName === 'TEXTAREA' && this.element.contains(field)
       if (!inCaption) this.composition.stopEditingAttachment()
     }
+    // A selection held for a toolbar dialog goes where its text went, with
+    // its highlight (blocks made from Y have none).
+    const frozen = this.frozenRange()
+    if (frozen) {
+      const end = Math.min(frozen[1], document.getLength())
+      try { if (end > frozen[0]) document = document.addAttributeAtRange(FROZEN, true, [frozen[0], end]) } catch (e) {}
+    }
     this.applyingRemote = true
     // (noted first: Trix can render, and run its filters, inside setDocument)
     this.remoteDoc = document
@@ -1024,6 +1075,13 @@ export class TrixBinding {
       this.applyingRemote = false
     }
     this.lastDoc = this.composition.document
+    if (frozen && this.frozen) {
+      try {
+        const locked = this.lastDoc.locationRangeFromRange([Math.min(frozen[0], this.lastDoc.getLength()), Math.min(frozen[1], this.lastDoc.getLength())])
+        this.controller.selectionManager.lockedLocationRange = locked
+        this.frozen.locked = locked
+      } catch (e) {}
+    }
     // Trix skips rendering while it handles an input event and renders after
     // only if its own input code asked. Undo from the keyboard lands here
     // inside such an event, so render now, as Trix's own undo does.

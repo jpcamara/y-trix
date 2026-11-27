@@ -64,6 +64,14 @@ This format is what other programs see when they read the `Y.Text`: a server tha
 - Trix does not redraw while an attachment is selected for editing. When a
   remote change arrives the binding deselects it, unless the user is typing
   its caption, so that other people's changes show.
+- While a toolbar dialog is open (the link field) Trix holds the selection:
+  it marks the selected text with a `frozen` attribute, which shows it
+  highlighted, and keeps the range as fixed positions. Neither is content.
+  `frozen` is never written to Y and never taken from it, and the binding
+  keeps the range as Yjs positions and gives Trix the new one after each
+  remote change. (Shared, the highlight showed in everyone's editor, the
+  link went on whatever stood at the old positions after someone else's
+  edit, and the highlight was left in the document.)
 - Remote carets and selections are drawn in an overlay appended to
   `document.body`, at most once per animation frame.
 - Attachments keep their Trix `Attachment` object across remote rebuilds.
