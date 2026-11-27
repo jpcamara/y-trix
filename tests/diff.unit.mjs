@@ -76,3 +76,73 @@ const nb = textDiff('Helloa ', 'Helloba\u00a0', 6)
 if (JSON.stringify(nb) !== JSON.stringify([{ index: 5, remove: 0, insert: 'b' }, { index: 6, remove: 1, insert: '\u00a0' }])) { bad2++; console.log('nbsp case', nb) }
 console.log('textDiff property failures:', bad2)
 if (bad2) process.exit(1)
+
+// A change in very many places (a word replaced all through a long document)
+// is edits in those places: never one edit over everything from the first to
+// the last, which would take out what others are typing in between.
+let bad3 = 0
+s = 17
+const apply = (a, ops) => { let out = a; for (const op of ops.slice().reverse()) out = out.slice(0, op.index) + op.insert + out.slice(op.index + op.remove); return out }
+{
+  let a = ''
+  for (let i = 0; i < 1500; i++) a += `Paragraph ${i} has a cat and a cat in it \u{1F600}.\n`
+  const b = a.replace(/cat/g, 'dog')
+  const ops = textDiff(a, b)
+  if (apply(a, ops) !== b) { bad3++; console.log('replace all: wrong result') }
+  if (ops.length < 1500 || ops.some((op) => op.remove > 40 || op.insert.length > 40)) { bad3++; console.log('replace all: not line by line', ops.length, ops[0]) }
+}
+{
+  // a longer one where the word is in every third line, with lines added and taken out as well
+  let a = ''
+  for (let i = 0; i < 6000; i++) a += i % 3 === 0 ? `Paragraph ${i} has a cat and a cat in it.\n` : `Paragraph ${i} has none.\n`
+  const more = a.replace(/cat/g, 'dog').split('\n'); more.splice(4000, 2); more.splice(100, 0, 'a new line', 'and another'); more.splice(5000, 0, 'at the end')
+  const c = more.join('\n')
+  const moved = textDiff(a, c)
+  if (apply(a, moved) !== c) { bad3++; console.log('replace all with lines moved: wrong result') }
+  // (also then: edits in their places, with the lines that came or went)
+  if (moved.length < 2000 || moved.some((op) => op.remove > 200 || op.insert.length > 200)) { bad3++; console.log('replace all with lines moved: not in its places', moved.length) }
+}
+for (let i = 0; i < 300; i++) {
+  // long random documents, changed in many lines
+  const n = 300 + rand(300)
+  const la = Array.from({ length: n }, (_, k) => `line ${k} ${str(rand(12))} \u{1F600}`)
+  const lb = la.map((l) => rand(3) ? l.replace(/a/g, 'cc') + str(rand(3)) : l)
+  if (rand(2)) lb.splice(rand(lb.length), rand(4))
+  if (rand(2)) lb.splice(rand(lb.length), 0, str(5), str(6))
+  const a = la.join('\n') + '\n'; const b = lb.join('\n') + '\n'
+  const ops = textDiff(a, b, rand(2) ? undefined : rand(b.length + 1))
+  if (apply(a, ops) !== b) { bad3++; if (bad3 < 4) console.log('long document: wrong result', i) }
+  for (const op of ops) if (!whole(op.insert) || !whole(a.slice(op.index, op.index + op.remove))) { bad3++; if (bad3 < 4) console.log('long document: half an emoji', op) }
+}
+{
+  // a short document replaced by a long one that has nothing to do with it, and back
+  const a = 'Hello world. Edit me in either editor.\nSecond paragraph.\n'
+  let b = ''
+  for (let i = 0; i < 80; i++) b += `Paragraph ${i} lorem ipsum dolor sit amet.\n`
+  for (const [from, to] of [[a, b], [b, a], [b + b + b, a + b], ['x'.repeat(5000) + '\n' + 'y'.repeat(5000) + '\n', 'z'.repeat(6000) + '\n' + 'w'.repeat(3000) + '\n']]) {
+    if (apply(from, textDiff(from, to)) !== to) { bad3++; console.log('unrelated documents: wrong result') }
+  }
+}
+{
+  // lines moving around a short one: its text is kept, not written again
+  // (as many line ends can be kept either way)
+  const a = 'Xw\n\n\ue000\n\n.\n'
+  const b = 'Xw\n\n\n.\n\n\n\ue001\n\ue001\n\ue001\n\ue001\n\ue002\n'
+  for (const cursor of [undefined, 18, 4]) {
+    const ops = textDiff(a, b, cursor)
+    if (apply(a, ops) !== b) { bad3++; console.log('short line: wrong result') }
+    if (ops.some((op) => op.insert.includes('.'))) { bad3++; console.log('short line: its text is written again', JSON.stringify(ops)) }
+  }
+}
+{
+  // lines and objects put in before the last letter of a line, with more after it:
+  // the letter is kept though more line ends could be kept without it
+  const E = '\ue000'; const B = '\ue001'
+  const a = `e${E}\n${E}\nco\n\nnxd\n\n\n${E}\n\n${B}\n${B}\n${B}\n${B}\n`
+  const b = `e${E} ${E}co nx\n\n\n${B}\n${B}\n${B}\n${B}\nd ${E}\n${B}\n${B}\n${B}\n${B}\n`
+  const ops = textDiff(a, b, 20)
+  if (apply(a, ops) !== b) { bad3++; console.log('lines before a letter: wrong result') }
+  if (ops.some((op) => op.insert.includes('d'))) { bad3++; console.log('lines before a letter: the letter is written again', JSON.stringify(ops)) }
+}
+console.log('textDiff long document failures:', bad3)
+if (bad3) process.exit(1)
