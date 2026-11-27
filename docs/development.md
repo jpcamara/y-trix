@@ -67,6 +67,13 @@ mouse and keys, two others edit at random, and the user finishes; the
 selection, the key or the link has to be where Yjs positions taken
 beforehand say (`UI_SEEDS=1,2,3 UI_ROUNDS=40`).
 
+`tests/alone.spec.js` gives two pages the same keys, toolbar buttons and
+pastes at random, one with the binding and one with Trix alone, and holds
+them to the same document and selection after every step
+(`ALONE_SEEDS=1,2,3 ALONE_STEPS=120`). What the binding does to Trix
+without meaning to shows up here: it made Firefox's Trix read the whole
+document back from the page after Shift+Enter.
+
 `tests/shown.spec.js` presses keys and toolbar buttons at random and holds
 the caret the others are shown to being where the user's own editor has
 it after each one (`SHOWN_SEEDS=1,2,3`).

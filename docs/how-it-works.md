@@ -49,7 +49,12 @@ This format is what other programs see when they read the `Y.Text`: a server tha
 - Enter: Trix renders an Enter on the next animation frame, and a key that
   arrives before that frame lands in the wrong place (plain Trix does this
   too; it renders at once only on iOS). The binding makes Trix render as soon
-  as the browser has finished the Enter.
+  as the browser has finished the Enter. What the browser did to the page
+  for that key is still on its way to Trix's mutation observer then, and
+  Trix ignores it only while a render is waiting, so the binding drops it
+  first. (Left there, it made Firefox's Trix read the whole document back
+  from the page after Shift+Enter, and a line break elsewhere that the
+  page showed as a newline character came back as a space.)
 - Input methods: while a composition is in progress (Japanese, Chinese,
   Korean, most Android typing) any render by Trix would end it and commit
   the half-typed text. The binding keeps a second `Y.Doc` that holds exactly

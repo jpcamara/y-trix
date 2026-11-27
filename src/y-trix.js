@@ -342,7 +342,20 @@ export class TrixBinding {
     // has finished its own change.
     this.onInput = (event) => {
       const input = this.controller.inputController
-      if ((event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') && input && input.scheduledRender && input.render) input.render()
+      if ((event.inputType === 'insertParagraph' || event.inputType === 'insertLineBreak') && input && input.scheduledRender && input.render) {
+        // What the browser did to the page for this key is still on its way
+        // to Trix's mutation observer. Trix ignores it while a render is
+        // waiting. Rendering now ends the wait, and in Firefox Trix then
+        // took the browser's change for something unexpected and read the
+        // whole document back from the page: a line break elsewhere could
+        // come back as a space. So that news is dropped here, as Trix's own
+        // render drops it.
+        try {
+          const observer = input.mutationObserver && input.mutationObserver.observer
+          if (observer && observer.takeRecords) observer.takeRecords()
+        } catch (e) {}
+        input.render()
+      }
     }
     element.addEventListener('input', this.onInput)
 

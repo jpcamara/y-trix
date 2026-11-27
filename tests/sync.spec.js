@@ -126,6 +126,23 @@ test('trix: a key typed right after Enter lands after the line break', async ({ 
   }
 })
 
+test('trix: Enter and Shift+Enter do not make Trix read the document back from the page', async ({ page }) => {
+  // (it did in Firefox after Shift+Enter, and what the page does not show as the document has it came back changed:
+  // a line break that Trix had drawn as a newline character came back as a space)
+  await open(page)
+  await page.evaluate(() => {
+    window.reparses = 0
+    const controller = window.ytDemo.peers[0].element.editorController
+    const reparse = controller.reparse.bind(controller)
+    controller.reparse = () => { window.reparses++; return reparse() }
+  })
+  await caret(page, 0, 8)
+  for (const key of ['Shift+Enter', 'a', 'Enter', 'b', 'Shift+Enter', 'Enter', 'c']) { await page.keyboard.press(key); await page.waitForTimeout(40) }
+  await converge(page)
+  expect(await page.evaluate(() => window.reparses)).toBe(0)
+  expect(await text(page, 1)).toContain('Hello wo\na\nb\n\ncrld. Edit me')
+})
+
 test('trix: replacing an emoji with another keeps both whole', async ({ page }) => {
   await open(page)
   await caret(page, 0, 5)
