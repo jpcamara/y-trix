@@ -84,6 +84,67 @@ for (const [server, port] of Object.entries(SERVERS)) {
     expect(await converge([a, b])).toBe('Hello world. Offline A.\nSecond paragraph. Online B.\n')
   })
 
+  test(`y-websocket, ${server}: a mouse selection, a click and the link dialog in one browser while the other types`, async ({ browser }) => {
+    const room = newRoom()
+    const a = await openPeer(browser, room, 0, ws)
+    const b = await openPeer(browser, room, 1, ws)
+    await load(a, '<div>Hello world. Edit me in either editor.</div><div>Second paragraph.</div>')
+    await expect.poll(() => text(b, 0)).toBe('Hello world. Edit me in either editor.\nSecond paragraph.\n')
+    const point = (offset) => a.evaluate((offset) => {
+      const node = window.ytDemo.peers[0].element.querySelector('div').lastChild
+      const r = document.createRange()
+      r.setStart(node, offset); r.setEnd(node, offset)
+      const box = r.getBoundingClientRect()
+      return { x: box.left, y: box.top + box.height / 2 }
+    }, offset)
+    const selected = () => a.evaluate(() => { const ed = window.ytDemo.peers[0].editor; const r = ed.getSelectedRange(); return ed.getDocument().toString().slice(r[0], r[1]) })
+    // (A's editor has the focus already: in Firefox the click that gives a Trix editor the focus puts the caret at the start, bound or not)
+    await caret(a, 0, 0)
+    // A drags over "Edit me" while B types at the start and after "me"
+    const from = await point(13)
+    const to = await point(20)
+    await a.mouse.move(from.x, from.y)
+    await a.mouse.down()
+    await a.mouse.move((from.x + to.x) / 2, from.y, { steps: 3 })
+    await caret(b, 0, 0)
+    await b.keyboard.type('One. ')
+    await caret(b, 0, (await text(b, 0)).indexOf(' in either'))
+    await b.keyboard.type(' too')
+    await b.waitForTimeout(300)
+    // (not shown in A while its button is down)
+    expect(await text(a, 0)).not.toContain('One.')
+    await a.mouse.move(to.x, to.y, { steps: 3 })
+    await a.mouse.up()
+    await expect.poll(() => text(a, 0)).toContain('One. Hello world. Edit me too in either')
+    expect(await selected()).toBe('Edit me')
+    // A clicks after "Hello" and B types at once; A's key lands where A clicked
+    const click = await a.evaluate(() => {
+      const ed = window.ytDemo.peers[0].editor
+      const rect = ed.getClientRectAtPosition(ed.getDocument().toString().indexOf('Hello') + 5)
+      return { x: rect.left + 1, y: rect.top + rect.height / 2 }
+    })
+    await a.mouse.click(click.x, click.y)
+    await caret(b, 0, 0)
+    await b.keyboard.type('Zero. ')
+    await expect.poll(() => text(a, 0)).toContain('Zero. One.')
+    await a.keyboard.type('!')
+    await expect.poll(() => text(b, 0)).toContain('Zero. One. Hello! world.')
+    // A opens the link dialog on "world", B types before it, A saves
+    const at = (await text(a, 0)).indexOf('world')
+    await caret(a, 0, at)
+    await a.evaluate((at) => window.ytDemo.peers[0].editor.setSelectedRange([at, at + 5]), at)
+    const toolbar = '#' + await a.evaluate(() => window.ytDemo.peers[0].element.toolbarElement.id)
+    await a.locator(`${toolbar} [data-trix-attribute=href]`).first().click()
+    await caret(b, 0, 0)
+    await b.keyboard.type('Minus. ')
+    await expect.poll(() => text(a, 0)).toContain('Minus. Zero.')
+    await a.locator(`${toolbar} input[name=href]`).fill('https://example.com/')
+    await a.locator(`${toolbar} input[name=href]`).press('Enter')
+    await expect.poll(() => b.evaluate(() => window.ytDemo.peers[0].element.innerHTML)).toContain('<a href="https://example.com/">world</a>')
+    for (const p of [a, b]) expect(await p.evaluate(() => JSON.stringify(window.ytDemo.peers[0].doc.getText('trix').toDelta()))).not.toContain('frozen')
+    expect(await converge([a, b])).toBe('Minus. Zero. One. Hello! world. Edit me too in either editor.\nSecond paragraph.\n')
+  })
+
   test(`y-websocket, ${server}: a late joiner gets the document from the server`, async ({ browser }) => {
     const room = newRoom()
     const a = await openPeer(browser, room, 0, ws)
