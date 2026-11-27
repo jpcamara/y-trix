@@ -80,10 +80,13 @@ This format is what other programs see when they read the `Y.Text`: a server tha
 - The reader's place: Trix makes all its nodes anew at every render, so
   the browser does not keep what is on screen where it is, and lines that
   someone adds above pushed what the user was reading or typing down the
-  screen. Before a remote change is shown the binding notes where the
-  blocks at the top of the visible part of the editor are, and afterwards
-  scrolls whatever scrolls (the editor, a box around it, or the page) by
-  as much as they moved. With the start of the document in view nothing is
+  screen. Before a remote change is shown the binding notes what is at
+  the top of the visible part of the editor and where (a child element, by
+  its place among its siblings and the start of its text; in a long list,
+  the item), and afterwards scrolls whatever scrolls (the editor, a box
+  around it, or the page) by as much as it moved. That measures the page
+  after the render, which at 2,000 blocks takes about as long again as
+  the render did. With the start of the document in view nothing is
   scrolled. Two editors on one page that show the same change each scroll
   the page for it.
 - A selection made backwards (Shift and the left arrow) is put back

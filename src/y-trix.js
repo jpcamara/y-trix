@@ -60,6 +60,10 @@ const sharedAttrs = (attachment) => {
 // the range as fixed positions. That is one editor's selection, not
 // content: `frozen` is never written to Y and never taken from it.
 const FROZEN = 'frozen'
+
+// Elements that hold several blocks (see scrollAnchors).
+const SCROLL_CONTAINERS = new Set(['UL', 'OL', 'LI', 'BLOCKQUOTE'])
+const startOfText = (node) => node.nodeName + ' ' + (node.textContent || '').slice(0, 80)
 /** A piece's attributes as they are shared. */
 const sharedPieceAttrs = (piece) => {
   const attrs = piece.getAttributes()
@@ -1277,74 +1281,75 @@ export class TrixBinding {
   }
 
   /**
-   * The blocks at the top of what is visible of the editor, with where they
-   * are on the screen. Trix makes all its nodes anew when it renders, so the
+   * What is at the top of the visible part of the editor, and where it is on
+   * the screen. Trix makes all its nodes anew when it renders, so the
    * browser does not keep the reader's place by itself: lines someone adds
    * above push what the user is reading, or typing, down the screen. Null
    * when the start of the document is in view.
+   *
+   * Nodes do not live through a render, and asking Trix where a block is
+   * walks the document, so an anchor is a child element by its place among
+   * its siblings, counted from both ends, with the start of its text to
+   * know it again by. Found by halving, in a list or quote that fills the
+   * view in its children in turn.
    */
   scrollAnchors () {
     try {
       const el = this.element
       const first = el.firstElementChild
       if (!first) return null
-      const doc = el.ownerDocument
       const box = el.getBoundingClientRect()
       const top = Math.max(0, box.top)
-      const bottom = Math.min(doc.defaultView.innerHeight, box.bottom)
+      const bottom = Math.min(el.ownerDocument.defaultView.innerHeight, box.bottom)
       if (bottom <= top || first.getBoundingClientRect().bottom > top) return null
-      // the block at the top of what is visible: by the element that is there, or between blocks by the last child that starts above
-      let node = doc.elementFromPoint(box.left + Math.min(40, box.width / 2), top + 4)
-      if (!node || node === el || !el.contains(node)) {
-        const kids = el.children
+      const levels = []
+      let parent = el
+      for (let depth = 0; depth < 4; depth++) {
+        const kids = parent.children
+        if (kids.length === 0) break
         let lo = 0
         let hi = kids.length - 1
         while (lo < hi) {
           const mid = (lo + hi + 1) >> 1
           if (kids[mid].getBoundingClientRect().top <= top + 4) lo = mid; else hi = mid - 1
         }
-        node = kids[lo]
+        // (and the two after it, in case it is the one that changes)
+        const level = []
+        for (let k = lo; k < Math.min(kids.length, lo + 3); k++) level.push({ fromStart: k, fromEnd: kids.length - 1 - k, text: startOfText(kids[k]), top: kids[k].getBoundingClientRect().top })
+        levels.push(level)
+        const node = kids[lo]
+        if (!SCROLL_CONTAINERS.has(node.nodeName) || node.children.length < 2 || node.getBoundingClientRect().bottom <= bottom) break
+        parent = node
       }
-      const at = this.controller.selectionManager.locationMapper.findLocationFromContainerAndOffset(node, 0)
-      if (!at || typeof at.index !== 'number') return null
-      const document = this.composition.document
-      const anchors = []
-      // (a block that does not change is the same object afterwards; the one at the top may be the one that changes)
-      for (let index = at.index; index < at.index + 4 && index < document.getBlockCount(); index++) {
-        const y = this.blockTop(index)
-        if (y !== null) anchors.push([document.getBlockAtIndex(index), y])
-      }
-      return anchors.length > 0 ? anchors : null
+      return levels.length > 0 ? levels : null
     } catch (e) { return null }
   }
 
-  /** Where the block with this index starts on the screen, or null. */
-  blockTop (index) {
-    const found = this.controller.selectionManager.findNodeAndOffsetFromLocation({ index, offset: 0 })
-    let node = found && found[0]
-    if (node && node.nodeType !== 1) node = node.parentElement
-    return node ? node.getBoundingClientRect().top : null
-  }
-
-  /** Scroll so that the first of the anchors that is still there is where it was. */
-  keepScroll (anchors) {
+  /** Scroll so that what scrollAnchors() found is where it was. */
+  keepScroll (levels) {
     try {
       const el = this.element
-      const blocks = this.composition.document.getBlocks()
+      let parent = el
       let moved = null
-      let byText = null // for blocks that were made anew: where a block with that text is, if there is one such
-      for (const [block, y] of anchors) {
-        let index = blocks.indexOf(block)
-        if (index < 0) {
-          if (byText === null) {
-            byText = new Map()
-            blocks.forEach((b, k) => { const key = b.toString(); byText.set(key, byText.has(key) ? -1 : k) })
-          }
-          const at = byText.get(block.toString())
-          index = at === undefined ? -1 : at
+      for (const level of levels) {
+        const kids = parent.children
+        let node = null
+        let was = 0
+        for (const anchor of level) {
+          const a = kids[anchor.fromStart]
+          const b = kids[kids.length - 1 - anchor.fromEnd]
+          const isA = !!a && startOfText(a) === anchor.text
+          const isB = !!b && startOfText(b) === anchor.text
+          // (both, with lines added or taken away somewhere: the one that stayed where it was, if one did)
+          if (isA && isB && a !== b) node = Math.abs(a.getBoundingClientRect().top - anchor.top) < 1 ? a : b
+          else node = isB ? b : isA ? a : null
+          if (node) { was = anchor.top; break }
         }
-        const now = index < 0 ? null : this.blockTop(index)
-        if (now !== null) { moved = now - y; break }
+        if (!node) break
+        moved = node.getBoundingClientRect().top - was
+        // (the levels below are those of the first anchor)
+        if (level[0].text !== startOfText(node)) break
+        parent = node
       }
       if (moved === null || Math.abs(moved) < 1) return
       const win = el.ownerDocument.defaultView

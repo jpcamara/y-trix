@@ -608,6 +608,31 @@ test('trix: an attachment the user has clicked stays selected through other peop
   expect(page.debugFailures).toEqual([])
 })
 
+test('trix: an item far down a long list stays in place when lines are added above the list or inside it', async ({ page }) => {
+  await open(page)
+  await page.evaluate(() => {
+    window.ytDemo.peers[0].editor.loadHTML('<div>Intro</div><ul>' + Array.from({ length: 150 }, (_, i) => `<li>Item ${i} of the list</li>`).join('') + '</ul><div>Outro</div>')
+    window.ytDemo.peers[1].element.closest('.peer').style.display = 'none'
+  })
+  await expect.poll(() => text(page, 1)).toContain('Item 149')
+  const item = (n) => page.locator('trix-editor').first().locator('li', { hasText: new RegExp(`^Item ${n} `) })
+  const top = async (n) => Math.round((await item(n).boundingBox()).y)
+  await item(100).evaluate((el) => el.scrollIntoView({ block: 'center' }))
+  await page.waitForTimeout(200)
+  const before = await top(100)
+  await page.evaluate(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); for (let k = 0; k < 5; k++) t.insert(0, 'new ' + k + '\n', { blockBreak: true }) })
+  await expect.poll(() => text(page, 0)).toContain('new 4')
+  expect(Math.abs(await top(100) - before)).toBeLessThanOrEqual(2)
+  await page.evaluate(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); const at = t.toString().indexOf('Item 3 '); for (let k = 0; k < 5; k++) t.insert(at, 'extra ' + k + '\n', { blockBreak: true, block: ['bulletList', 'bullet'] }) })
+  await expect.poll(() => text(page, 0)).toContain('extra 4')
+  expect(Math.abs(await top(100) - before)).toBeLessThanOrEqual(2)
+  // and items taken away above
+  await page.evaluate(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); const s = t.toString(); t.delete(s.indexOf('Item 10 '), s.indexOf('Item 20 ') - s.indexOf('Item 10 ')) })
+  await expect.poll(() => text(page, 0)).not.toContain('Item 15 ')
+  expect(Math.abs(await top(100) - before)).toBeLessThanOrEqual(2)
+  await converge(page)
+})
+
 test('trix: undoing an attachment attribute change gives every editor the old attachment', async ({ page }) => {
   await open(page)
   await caret(page, 0, 'end')
