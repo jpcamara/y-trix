@@ -559,6 +559,55 @@ for (const boxed of [false, true]) {
   })
 }
 
+test('trix: an attachment the user has clicked stays selected through other people\'s changes', async ({ page }) => {
+  await open(page)
+  await caret(page, 0, 3)
+  await page.evaluate(() => window.ytDemo.peers[0].editor.insertAttachment(new window.Trix.Attachment({ url: 'data:image/gif;base64,R0lGODlhAQABAAAAACw=', contentType: 'image/gif', filename: 'a.gif', filesize: 35, width: 60, height: 60 })))
+  await converge(page)
+  const figure = page.locator('trix-editor').first().locator('figure')
+  const state = () => page.evaluate(() => { const ed = window.ytDemo.peers[0].editor; return [!!ed.composition.editingAttachment, ed.getSelectedRange()] })
+  await figure.locator('img').click()
+  await expect.poll(() => state()).toEqual([true, [3, 4]])
+  // someone types before it, then changes the attachment itself: both show, and it is still selected, with its controls
+  await page.evaluate(() => window.ytDemo.peers[1].doc.getText('trix').insert(0, 'QQ'))
+  await expect.poll(() => html(page, 0)).toContain('QQHel')
+  expect(await state()).toEqual([true, [5, 6]])
+  await page.evaluate(() => window.ytDemo.peers[1].editor.getDocument().getAttachments()[0].setAttributes({ href: 'https://example.com/x' }))
+  await expect.poll(() => page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().getAttachments()[0].getAttribute('href'))).toBe('https://example.com/x')
+  expect(await state()).toEqual([true, [5, 6]])
+  await expect(figure.locator('.attachment__toolbar')).toHaveCount(1)
+  // a run of keys from someone, one change each: the screen shows them in order
+  await page.evaluate(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); for (const ch of 'Remote. ') t.insert(t.toString().indexOf('QQ'), ch) })
+  await expect.poll(() => page.evaluate(() => window.ytDemo.peers[0].element.textContent)).toContain('Remote. QQHel')
+  expect((await state())[0]).toBe(true)
+  await page.evaluate(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); t.delete(t.toString().indexOf('Remote. '), 8) })
+  await expect.poll(() => state()).toEqual([true, [5, 6]])
+  // so the user gets to its caption field
+  await page.evaluate(() => window.ytDemo.peers[0].element.querySelector('textarea').focus())
+  await page.keyboard.type('cap')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => page.evaluate(() => window.ytDemo.peers[1].doc.getText('trix').toDelta().filter((d) => typeof d.insert !== 'string').map((d) => d.attributes.caption))).toEqual(['cap'])
+  // and Backspace takes out the attachment that is selected, not something else
+  await figure.locator('img').click()
+  await expect.poll(() => state()).toEqual([true, [5, 6]])
+  await page.evaluate(() => window.ytDemo.peers[1].doc.getText('trix').insert(0, 'RR'))
+  await expect.poll(() => html(page, 0)).toContain('RRQQHel')
+  await page.keyboard.press('Backspace')
+  await converge(page)
+  expect(await text(page, 1)).toBe('RRQQHello world. Edit me in either editor.\nSecond paragraph.\n')
+  // someone deletes the attachment while it is selected: nothing is left selected, and nothing breaks
+  await page.evaluate(() => window.ytDemo.peers[0].editor.undo())
+  await converge(page)
+  await figure.locator('img').click()
+  await expect.poll(() => state().then((s) => s[0])).toBe(true)
+  await page.evaluate(() => { const t = window.ytDemo.peers[1].doc.getText('trix'); t.delete(t.toString().length - t.toDelta().reduce((n, d) => n, 0) >= 0 ? t.toDelta().reduce((n, d) => (typeof d.insert === 'string' ? (n.found ? n : { at: n.at + d.insert.length, found: false }) : { at: n.at, found: true }), { at: 0, found: false }).at : 0, 1) })
+  await expect.poll(() => page.evaluate(() => window.ytDemo.peers[0].editor.getDocument().getAttachments().length)).toBe(0)
+  expect((await state())[0]).toBe(false)
+  await page.keyboard.type('z')
+  await converge(page)
+  expect(page.debugFailures).toEqual([])
+})
+
 test('trix: undoing an attachment attribute change gives every editor the old attachment', async ({ page }) => {
   await open(page)
   await caret(page, 0, 'end')

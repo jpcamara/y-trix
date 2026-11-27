@@ -63,7 +63,10 @@ This format is what other programs see when they read the `Y.Text`: a server tha
   shows that here too.
 - Trix does not redraw while an attachment is selected for editing. When a
   remote change arrives the binding deselects it, unless the user is typing
-  its caption, so that other people's changes show.
+  its caption, so that other people's changes show, and in the editor the
+  user is in it selects the attachment again afterwards. (Left deselected,
+  nobody could get to an attachment's caption field or its remove button
+  while someone else was typing.)
 - The mouse: while the button is down in the editor the browser is making
   a selection from the nodes that are there, and a render by Trix would
   replace them (the selection then came out short, or from the top of the

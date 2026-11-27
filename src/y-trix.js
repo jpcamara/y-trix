@@ -1187,11 +1187,18 @@ export class TrixBinding {
     const field = this.fieldCaret && this.fieldCaret.element === active && !focused ? this.fieldCaret : null
     // Trix does not redraw while an attachment is selected for editing, so
     // nothing anyone else did would show until this user clicked away.
-    // Deselect it, unless they are typing its caption.
+    // Deselect it, unless they are typing its caption, and select it again
+    // afterwards: with someone else typing, the user would never get to its
+    // caption field or its remove button otherwise.
+    let editing = null
     if (this.composition.editingAttachment) {
       const field = this.element.ownerDocument.activeElement
       const inCaption = field !== null && field.nodeName === 'TEXTAREA' && this.element.contains(field)
-      if (!inCaption) this.composition.stopEditingAttachment()
+      if (!inCaption) {
+        // (again only in the editor the user is in)
+        if (focused) editing = this.composition.editingAttachment
+        this.composition.stopEditingAttachment()
+      }
     }
     // What the user is looking at stays where it is on the screen (see scrollAnchors).
     const anchors = this.scrollAnchors()
@@ -1259,6 +1266,9 @@ export class TrixBinding {
           this.composition.notifyDelegateOfCurrentAttributesChange()
         }
       } catch (e) {}
+    }
+    if (editing && !this.composition.editingAttachment) {
+      try { if (this.composition.document.getRangeOfAttachment(editing)) this.composition.editAttachment(editing) } catch (e) {}
     }
     if (anchors) this.keepScroll(anchors)
     // Trix may adjust what it rendered (its attachment gallery filter); that
