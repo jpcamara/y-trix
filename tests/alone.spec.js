@@ -64,6 +64,8 @@ for (const seed0 of (process.env.ALONE_SEEDS || '1,2,3').split(',').map(Number))
           await page.waitForTimeout(40)
         }
       }
+      // (Tab outside a list moves on to the page's second editor: the keys after it are for the first one all the same)
+      await both((p) => p.evaluate(() => { const el = window.ytDemo.peers[0].element; if (document.activeElement !== el) el.focus() }))
       const r = rand(10)
       let did
       if (r === 0) {
