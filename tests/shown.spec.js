@@ -33,7 +33,8 @@ for (const seed0 of (process.env.SHOWN_SEEDS || '1,2,3').split(',').map(Number))
         const [a, b] = window.ytDemo.peers
         const Y = window.ytDemo.Y
         const focused = document.activeElement === a.element
-        const sel = a.editor.getSelectedRange()
+        // (as the binding reads it: Chromium's Trix takes a selected block break for a caret)
+        const sel = a.binding.safeSelectedRange()
         const state = b.awareness.getStates().get(a.awareness.clientID)
         const cursor = state && state.cursor
         const at = (json) => { const abs = Y.createAbsolutePositionFromRelativePosition(Y.createRelativePositionFromJSON(json), b.doc); return abs ? abs.index : null }

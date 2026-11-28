@@ -518,7 +518,31 @@ export class TrixBinding {
         const now = manager.getLocationRange({ strict: false })
         if (now) return this.composition.document.rangeFromLocationRange(now)
       }
-      return this.composition.getSelectedRange() || null
+      const range = this.composition.getSelectedRange() || null
+      // With the end of a block and the start of the next selected (Shift
+      // and the right arrow at the end of a line), Chromium's Trix says the
+      // selection is a caret, though the page has the block break selected
+      // and the next key replaces it. Put back as a caret after a remote
+      // change, the key no longer joined the two blocks.
+      if (range && range[0] === range[1] && manager && !manager.lockedLocationRange) {
+        const page = this.element.ownerDocument.defaultView.getSelection()
+        if (page && page.rangeCount > 0 && !page.isCollapsed && this.element.contains(page.anchorNode) && this.element.contains(page.focusNode)) {
+          // (the end of the selection is at the very start of the next
+          // block's element, before the comment Trix marks a block with,
+          // and Trix reads that as the end of the block before)
+          const at = (node, offset) => {
+            if (node.nodeType === 1 && offset === 0 && node.firstChild && node.firstChild.nodeType === 8 && node.firstChild.data === 'block') offset = 1
+            return manager.locationMapper.findLocationFromContainerAndOffset(node, offset)
+          }
+          const a = at(page.anchorNode, page.anchorOffset)
+          const b = at(page.focusNode, page.focusOffset)
+          if (a && b) {
+            const ends = [this.composition.document.positionFromLocation(a), this.composition.document.positionFromLocation(b)].sort((x, y) => x - y)
+            if (ends[0] !== ends[1] && ends.every((n) => typeof n === 'number' && !isNaN(n))) return ends
+          }
+        }
+      }
+      return range
     } catch (e) { return null }
   }
 
@@ -1518,6 +1542,10 @@ export class TrixBinding {
     // (And when the focus comes back: a toolbar button takes it for a moment
     // in some browsers, and what the button did happened while it was away.)
     for (const type of ['trix-selection-change', 'trix-change', 'trix-render', 'focus']) this.element.addEventListener(type, this.onSelectionChange)
+    // (And when the page's selection changes where Trix sees no change: a
+    // selected block break, which Chromium's Trix takes for a caret.)
+    this.onPageSelection = () => { if (this.isFocused()) this.onSelectionChange() }
+    this.element.ownerDocument.addEventListener('selectionchange', this.onPageSelection)
     this.onRender = () => this.renderCursors()
     this.awareness.on('change', this.onRender)
     this.element.addEventListener('trix-render', this.onRender)
@@ -1651,6 +1679,7 @@ export class TrixBinding {
     if (this.awareness) {
       const doc = this.element.ownerDocument
       for (const type of ['trix-selection-change', 'trix-change', 'trix-render', 'focus']) this.element.removeEventListener(type, this.onSelectionChange)
+      this.element.ownerDocument.removeEventListener('selectionchange', this.onPageSelection)
       this.element.removeEventListener('trix-render', this.onRender)
       this.awareness.off('change', this.onRender)
       doc.defaultView.removeEventListener('resize', this.onRender)

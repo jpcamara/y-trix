@@ -773,3 +773,18 @@ test('trix: undo steps end where Trix\'s own would, however fast the user is', a
   expect(states.some((s) => s.includes(' abc') && !s.includes('pasted'))).toBe(true)
   expect(states[states.length - 1]).toBe('Hello world. Edit me in either editor.\nSecond paragraph.\n')
 })
+
+test('trix: a block break selected with Shift and the right arrow is still selected after someone else\'s change', async ({ page }) => {
+  // (Chromium's Trix calls that selection a caret, though the next key replaces the break)
+  test.skip(!!test.info().project.metadata?.trix, 'Trix 2.1.15 keeps the break when a key is typed over a selection it knows of')
+  await open(page)
+  await caret(page, 0, 38)
+  await page.keyboard.press('Shift+ArrowRight')
+  for (const phase of [0, 1]) {
+    await page.evaluate((phase) => { const p = window.ytDemo.peers[1]; const t = p.doc.getText('trix'); p.doc.transact(() => { if (phase === 0) t.insert(3, 'Q', {}); else t.delete(3, 1) }, 'elsewhere') }, phase)
+    await page.waitForTimeout(80)
+  }
+  await page.keyboard.type('b')
+  await converge(page)
+  expect(await text(page, 1)).toBe('Hello world. Edit me in either editor.bSecond paragraph.\n')
+})

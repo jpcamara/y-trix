@@ -94,6 +94,11 @@ This format is what other programs see when they read the `Y.Text`: a server tha
   the render did. With the start of the document in view nothing is
   scrolled. Two editors on one page that show the same change each scroll
   the page for it.
+- With the end of a block and the start of the next selected (Shift and
+  the right arrow at the end of a line), Chromium's Trix says the
+  selection is a caret, though the page has the block break selected and
+  the next key replaces it. The binding reads the page then: put back as
+  a caret after a remote change, the key no longer joined the two blocks.
 - A selection made backwards (Shift and the left arrow) is put back
   backwards after a remote change, in this editor and when the selection
   is somewhere else on the page. A range alone runs forwards, and the next
@@ -198,6 +203,11 @@ dependency is Trix 2.1.15 or later, and the binding warns on anything older.
   step before it, where Trix alone spends an undo on showing the same
   document. (`tests/alone.spec.js` with undo and redo added to its buttons
   shows both; one such difference looked at closely was the second.)
+- With `ALONE_NOISE=1`, `tests/alone.spec.js` has someone else type and
+  take away a character between the user's keys. About one run in ten
+  then has a key on the other side of a space that was typed just before
+  it, at the end of a line or before a line break, where Trix alone has it
+  after the space. Not explained yet.
 - Yjs undo has two open bugs with nested types, yjs/yjs#823 (peers can
   diverge after undo) and yjs/yjs#809 (undo can throw). A single flat
   `Y.Text` does not seem to reach them: `node notes/yjs-undo-text.mjs` fuzzes
