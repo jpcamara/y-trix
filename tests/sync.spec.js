@@ -829,6 +829,7 @@ test('trix: the caret left in the editor is still there when the user comes back
 
 test('trix: a selection that ends at the very start of the next block still takes the block break with it after someone else\'s change', async ({ page, browserName }) => {
   test.skip(browserName !== 'chromium', 'only Chromium leaves the end of a selection there')
+  test.skip(!!test.info().project.metadata?.trix, 'Trix 2.1.15 keeps the break when a key is typed over a selection it knows of')
   await open(page)
   await caret(page, 0, 5)
   // (as Shift and End leave it after Shift and the up arrow: the end before the comment Trix marks a block with)
