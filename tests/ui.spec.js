@@ -146,6 +146,8 @@ for (const seed0 of (process.env.UI_SEEDS || '1,2,3').split(',').map(Number)) {
         if (!had.editing) continue
         const did = await others()
         await page.waitForTimeout(60)
+        // (on a slow machine the others' edits can still be on their way: wait for the text to stand still)
+        for (let k = 0, last = null; k < 12; k++) { const t = (await state()).text; if (t === last) break; last = t; await page.waitForTimeout(60) }
         const now = await state()
         const pos = await where()
         // (someone can have deleted it)
