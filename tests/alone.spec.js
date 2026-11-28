@@ -7,8 +7,8 @@
 // or make two characters bold and plain again, between the steps: the
 // document ends as it was, and the blocks the user is in are drawn again
 // under them. In Chromium about one run in ten then has a key on the other
-// side of a space typed just before a line break made with Shift+Enter
-// (see Limits of the approach in docs/how-it-works.md).
+// side of a space typed just before it, which is not explained yet (see
+// Limits of the approach in docs/how-it-works.md).
 import { test, expect } from '@playwright/test'
 import { open, docJSON } from './helpers.js'
 

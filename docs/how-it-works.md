@@ -203,16 +203,14 @@ dependency is Trix 2.1.15 or later, and the binding warns on anything older.
   step before it, where Trix alone spends an undo on showing the same
   document. (`tests/alone.spec.js` with undo and redo added to its buttons
   shows both; one such difference looked at closely was the second.)
-- A space typed just before a line break made with Shift+Enter, in
-  Chromium: the browser puts a non-breaking space in the page for it, and
-  Trix leaves that there. When someone else's change makes Trix draw that
-  block again, it draws a plain space, which the browser does not show at
-  the end of a line, and the next key goes before the space. Seen with
-  `ALONE_NOISE=1` in `tests/alone.spec.js` (someone else types a character
-  and takes it away again between the user's keys), in about one Chromium
-  run in ten; Firefox and WebKit have none. At the end of a block, in the
-  middle of a line and at the end of the document the next key is where it
-  belongs.
+- With `ALONE_NOISE=1`, `tests/alone.spec.js` has someone else type a
+  character and take it away again between the user's keys. In Chromium
+  about one run in ten then has a key on the other side of a space that
+  was typed just before it, where Trix alone has it after the space
+  (`ALONE_NOISE=1 ALONE_SEEDS=20,21,22 ALONE_STEPS=120`). Firefox and WebKit
+  have none in 40 runs. Not explained yet: a space and a key at the end of
+  a block, in the middle of a line, before a line break and at the end of
+  the document all come out right when tried one at a time.
 - Yjs undo has two open bugs with nested types, yjs/yjs#823 (peers can
   diverge after undo) and yjs/yjs#809 (undo can throw). A single flat
   `Y.Text` does not seem to reach them: `node notes/yjs-undo-text.mjs` fuzzes
