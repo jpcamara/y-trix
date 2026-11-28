@@ -53,14 +53,18 @@ test('trix: an editor taken out of the page and put back goes on syncing', async
 
 test('trix: loading a whole document over everything while someone else types', async ({ page }) => {
   await open(page)
-  await page.fill('#delay', '80')
+  // (long enough on the way that none of the typing has arrived when the
+  // other user loads: what had arrived is replaced with the rest of the
+  // document, and on a slow machine that was the first letter)
+  await page.fill('#delay', '600')
   await caret(page, 1, 3)
   await page.keyboard.type('typed ')
   await page.evaluate(() => window.ytDemo.peers[0].editor.loadHTML('<h1>New</h1><ul><li>a</li><li>b</li></ul>'))
   await page.keyboard.type('more')
-  await page.waitForTimeout(300)
+  await page.waitForTimeout(1500)
   // (the typing lands somewhere in what the other user loaded)
   expect(await done(page)).toContain('typed ')
+  await page.fill('#delay', '80')
   await page.evaluate(() => window.ytDemo.peers[1].editor.loadHTML(''))
   await page.waitForTimeout(300)
   expect((await done(page)).trim()).toBe('')
