@@ -6,9 +6,9 @@
 // ALONE_NOISE=1 has someone else type a character and take it away again,
 // or make two characters bold and plain again, between the steps: the
 // document ends as it was, and the blocks the user is in are drawn again
-// under them. About one run in ten then has a key on the other side of a
-// space typed just before it (at the end of a line, or before a line
-// break), which is not explained yet.
+// under them. In Chromium about one run in ten then has a key on the other
+// side of a space typed just before a line break made with Shift+Enter
+// (see Limits of the approach in docs/how-it-works.md).
 import { test, expect } from '@playwright/test'
 import { open, docJSON } from './helpers.js'
 
