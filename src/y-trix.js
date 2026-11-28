@@ -523,22 +523,26 @@ export class TrixBinding {
       // and the right arrow at the end of a line), Chromium's Trix says the
       // selection is a caret, though the page has the block break selected
       // and the next key replaces it. Put back as a caret after a remote
-      // change, the key no longer joined the two blocks.
-      if (range && range[0] === range[1] && manager && !manager.lockedLocationRange) {
+      // change, the key no longer joined the two blocks. The same with more
+      // selected than the break (Shift and End after Shift and the up
+      // arrow): Trix's range is one short, and the key then left the
+      // block after the break standing.
+      if (range && manager && !manager.lockedLocationRange) {
         const page = this.element.ownerDocument.defaultView.getSelection()
         if (page && page.rangeCount > 0 && !page.isCollapsed && this.element.contains(page.anchorNode) && this.element.contains(page.focusNode)) {
           // (the end of the selection is at the very start of the next
           // block's element, before the comment Trix marks a block with,
           // and Trix reads that as the end of the block before)
+          let moved = false
           const at = (node, offset) => {
-            if (node.nodeType === 1 && offset === 0 && node.firstChild && node.firstChild.nodeType === 8 && node.firstChild.data === 'block') offset = 1
+            if (node.nodeType === 1 && offset === 0 && node.firstChild && node.firstChild.nodeType === 8 && node.firstChild.data === 'block') { offset = 1; moved = true }
             return manager.locationMapper.findLocationFromContainerAndOffset(node, offset)
           }
           const a = at(page.anchorNode, page.anchorOffset)
           const b = at(page.focusNode, page.focusOffset)
           if (a && b) {
             const ends = [this.composition.document.positionFromLocation(a), this.composition.document.positionFromLocation(b)].sort((x, y) => x - y)
-            if (ends[0] !== ends[1] && ends.every((n) => typeof n === 'number' && !isNaN(n))) return ends
+            if (moved && ends[0] !== ends[1] && ends.every((n) => typeof n === 'number' && !isNaN(n)) && (ends[0] !== range[0] || ends[1] !== range[1])) return ends
           }
         }
       }
