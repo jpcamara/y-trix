@@ -215,9 +215,12 @@ dependency is Trix 2.1.15 or later, and the binding warns on anything older.
   has someone else type a character and take it away again between the
   user's keys, and about one Chromium run in fifteen ends differently from
   Trix alone, most of them this way round: the binding has the letter
-  after the space, Trix alone before it. One (`ALONE_SEEDS=5`) has Bold
-  switched on after a pasted picture with the binding and not without,
-  which is not explained yet. Firefox and WebKit had none in 40 runs.
+  after the space, Trix alone before it. One (`ALONE_SEEDS=5`, every
+  browser) is Bold pressed with the caret right after a picture: Trix
+  alone does not switch it on while the caret is where the Home key left
+  it, in the marker Trix keeps beside an attachment; after a remote change
+  the caret has been put back by Trix itself, next to the marker, and Bold
+  works. One in WebKit (`ALONE_SEEDS=18`) is not looked into yet.
 - A picture that does not load (a dead link) makes Trix draw the whole
   document again on every key typed in its block, with or without the
   binding: the `<img>` it would draw is not the one it kept in the page.
