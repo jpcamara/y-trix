@@ -15,6 +15,9 @@ import { open, docJSON } from './helpers.js'
 const KEYS = ['Enter', 'Shift+Enter', 'Backspace', 'Backspace', 'Delete', 'ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp', 'Shift+ArrowRight', 'Shift+ArrowLeft', 'Home', 'End', 'Space', 'Tab']
 const BUTTONS = ['bold', 'italic', 'strike', 'heading1', 'quote', 'code', 'bullet', 'number', 'increaseNestingLevel', 'decreaseNestingLevel']
 const NOISE = !!process.env.ALONE_NOISE
+// ALONE_MORE=1 adds keys to choose from: deleting and moving by word,
+// selecting lines and words, Shift+Tab.
+if (process.env.ALONE_MORE) KEYS.push('Shift+Tab', 'Alt+Backspace', 'Alt+Delete', 'Alt+ArrowRight', 'Alt+ArrowLeft', 'Shift+ArrowDown', 'Shift+ArrowUp', 'Shift+Home', 'Shift+End', 'Alt+Shift+ArrowRight', 'Alt+Shift+ArrowLeft')
 const PASTES = ['<figure data-trix-attachment="{&quot;contentType&quot;:&quot;image/gif&quot;,&quot;filename&quot;:&quot;a.gif&quot;,&quot;filesize&quot;:43,&quot;height&quot;:20,&quot;url&quot;:&quot;data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7&quot;,&quot;width&quot;:20}" data-trix-content-type="image/gif" class="attachment attachment--preview"><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" width="20" height="20"></figure>', '<figure data-trix-attachment="{&quot;content&quot;:&quot;<b>@m</b>&quot;,&quot;contentType&quot;:&quot;mention&quot;}" data-trix-content-type="mention" class="attachment attachment--content"><b>@m</b></figure>', '<div>one</div><div>two <em>three</em></div>', '<ul><li>a</li><li>b</li></ul>', 'plain <strong>bold</strong> text', '<h1>Title</h1><blockquote>quote</blockquote>', '<pre>code\nlines</pre>', 'x  y   z', ' lead and trail ']
 
 for (const seed0 of (process.env.ALONE_SEEDS || '1,2,3').split(',').map(Number)) {

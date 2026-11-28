@@ -807,3 +807,22 @@ test('trix: a key typed after a space at a line break goes after the space when 
   await converge(page)
   expect((await text(page, 1)).slice(0, 10)).toBe('Helb c\nlo ')
 })
+
+test('trix: the caret left in the editor is still there when the user comes back with the keyboard after someone else\'s change', async ({ page, browserName }) => {
+  test.skip(browserName === 'webkit', 'Safari puts the caret at the start when the editor is focused again, with the binding or without')
+  await open(page)
+  await caret(page, 0, 10)
+  // (to a button of the page: the page's selection stays in the editor)
+  await page.keyboard.press('Shift+Tab')
+  expect(await page.evaluate(() => document.activeElement !== window.ytDemo.peers[0].element)).toBe(true)
+  for (const phase of [0, 1]) {
+    await page.evaluate((phase) => { const p = window.ytDemo.peers[1]; const t = p.doc.getText('trix'); p.doc.transact(() => { if (phase === 0) t.insert(3, 'ZZ', {}); else t.delete(3, 1) }, 'elsewhere') }, phase)
+    await page.waitForTimeout(80)
+  }
+  // (and the keyboard is still where the user took it)
+  expect(await page.evaluate(() => document.activeElement !== window.ytDemo.peers[0].element)).toBe(true)
+  await page.evaluate(() => window.ytDemo.peers[0].element.focus())
+  await page.keyboard.type('X')
+  await converge(page)
+  expect((await text(page, 1)).slice(0, 14)).toBe('HelZlo worlXd.')
+})

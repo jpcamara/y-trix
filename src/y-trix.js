@@ -1134,7 +1134,10 @@ export class TrixBinding {
     const blocks = old.getBlocks()
     // The caret in old coordinates, carried through the change. A remote
     // insert at the caret goes after it, as with a live DOM range.
-    const range = this.isFocused() ? this.safeSelectedRange() : null
+    // (Or where it was left: with the keyboard gone to a button of the
+    // page, the page's selection is still in the editor, and coming back
+    // with Tab finds the caret there.)
+    const range = this.isFocused() || this.selectionInside() ? this.safeSelectedRange() : null
     let selAfter = range ? range.map((i) => mapIndex(event.delta, i)) : null
     let doc
     if (oldLen + (this.missingBreak ? 1 : 0) !== old.getLength() || blocks.length === 0) {
@@ -1211,6 +1214,8 @@ export class TrixBinding {
     const saved = !focused && domSel.rangeCount > 0 ? domSel.getRangeAt(0).cloneRange() : null
     // (and which way it runs: a range alone would turn a selection made backwards around)
     const ends = saved ? [domSel.anchorNode, domSel.anchorOffset, domSel.focusNode, domSel.focusOffset] : null
+    // (the selection is in this editor, though the keyboard is elsewhere)
+    const left = !focused && this.selectionInside()
     // A selection made from its end to its start (Shift and the left arrow):
     // Trix sets a range, which runs forwards, and the next Shift and arrow
     // would then move the wrong end.
@@ -1289,6 +1294,9 @@ export class TrixBinding {
     } else if (field && field.element === active && active.isConnected) {
       if (this.element.ownerDocument.activeElement !== active) active.focus({ preventScroll: true })
       try { active.setSelectionRange(Math.min(field.start, active.value.length), Math.min(field.end, active.value.length), field.direction || 'none') } catch (e) {}
+    } else if (!focused && sel && saved && left && this.placeLeftSelection(sel, domSel, ends)) {
+      // (the selection the user left in the editor is where its text went)
+      if (active && this.element.ownerDocument.activeElement !== active && active.focus) active.focus({ preventScroll: true })
     } else if (!focused) {
       if (saved && (domSel.rangeCount === 0 || !rangesEqual(domSel.getRangeAt(0), saved))) {
         domSel.removeAllRanges()
@@ -1404,6 +1412,39 @@ export class TrixBinding {
       }
       win.scrollBy(0, moved)
     } catch (e) {}
+  }
+
+  /** The page's selection is inside this editor (whether or not the editor has the keyboard). */
+  selectionInside () {
+    try {
+      const sel = this.element.ownerDocument.defaultView.getSelection()
+      return !!sel && sel.rangeCount > 0 && this.element.contains(sel.anchorNode) && this.element.contains(sel.focusNode)
+    } catch (e) { return false }
+  }
+
+  /**
+   * Put the page's selection at a range of the document without giving the
+   * editor the keyboard: the user left the editor for a button of the
+   * page, and what they left selected is drawn again. Without this the
+   * selection was at the start of the editor, and that is where the caret
+   * was when they came back with Tab.
+   */
+  placeLeftSelection (range, domSel, ends) {
+    try {
+      const doc = this.composition.document
+      const len = doc.getLength()
+      const at = [Math.max(0, Math.min(range[0], len - 1)), Math.max(0, Math.min(range[1], len - 1))]
+      const dom = this.controller.selectionManager.createDOMRangeFromLocationRange(doc.locationRangeFromRange(at))
+      if (!dom) return false
+      // (the way it ran)
+      let backwards = false
+      try {
+        if (ends && ends[0] !== null && ends[2] !== null && ends[0].isConnected && ends[2].isConnected) backwards = ends[0].compareDocumentPosition(ends[2]) & 2 /* Node.DOCUMENT_POSITION_PRECEDING */
+      } catch (e) {}
+      if (backwards) domSel.setBaseAndExtent(dom.endContainer, dom.endOffset, dom.startContainer, dom.startOffset)
+      else domSel.setBaseAndExtent(dom.startContainer, dom.startOffset, dom.endContainer, dom.endOffset)
+      return true
+    } catch (e) { return false }
   }
 
   /**

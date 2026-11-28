@@ -221,6 +221,20 @@ dependency is Trix 2.1.15 or later, and the binding warns on anything older.
   it, in the marker Trix keeps beside an attachment; after a remote change
   the caret has been put back by Trix itself, next to the marker, and Bold
   works. One in WebKit (`ALONE_SEEDS=18`) is not looked into yet.
+- The caret a user left in the editor when they took the keyboard to a
+  button of the page stays where its text went while others type: the
+  page's selection is still in the editor then, and it is put back after
+  a remote change without giving the editor the keyboard
+  (`placeLeftSelection`). Before, it was at the start of the editor, and
+  that is where the caret was when they came back with Tab. In Safari the
+  caret is at the start after coming back with or without the binding.
+- With `ALONE_MORE=1` the comparison in `tests/alone.spec.js` also deletes
+  and moves by word and selects lines. 120 runs agree with Trix alone; with
+  `ALONE_NOISE=1` as well, about one Chromium run in seven differs
+  (`ALONE_SEEDS=41` to `80`), in a space next to a key as above, or where
+  a block break was selected with Shift and the arrow: Trix alone pastes
+  beside the break it takes for a caret, and with the binding the paste
+  replaces it.
 - A picture that does not load (a dead link) makes Trix draw the whole
   document again on every key typed in its block, with or without the
   binding: the `<img>` it would draw is not the one it kept in the page.
