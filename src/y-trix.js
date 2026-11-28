@@ -1277,6 +1277,7 @@ export class TrixBinding {
     // only if its own input code asked. Undo from the keyboard lands here
     // inside such an event, so render now, as Trix's own undo does.
     if (this.controller.handlingInput) this.controller.render()
+    if (focused) this.keepSpacesBeforeBreaks()
     if (focused && sel) {
       try { this.editor.setSelectedRange(sel) } catch (e) {}
       try {
@@ -1402,6 +1403,38 @@ export class TrixBinding {
         if ((overflow === 'auto' || overflow === 'scroll') && box.scrollHeight > box.clientHeight) { box.scrollTop += moved; return }
       }
       win.scrollBy(0, moved)
+    } catch (e) {}
+  }
+
+  /**
+   * A space typed just before a line break (Shift+Enter), or standing right
+   * after one, is a non-breaking space in the page: the browser puts that there so that it shows, and
+   * Trix leaves it. When Trix draws the block again it draws a plain space,
+   * which does not show at the end of a line, and in Chromium the next key
+   * typed after it goes before it. So after a remote change is drawn, such
+   * a space is made non-breaking in the page again. (The document is not
+   * touched: both read as a space.)
+   */
+  keepSpacesBeforeBreaks () {
+    try {
+      const input = this.controller.inputController
+      const observer = input && input.mutationObserver && input.mutationObserver.observer
+      let changed = false
+      for (const br of this.element.querySelectorAll('br')) {
+        const before = br.previousSibling
+        if (before && before.nodeType === 3 && before.data.endsWith(' ')) {
+          before.data = before.data.slice(0, -1) + '\u00a0'
+          changed = true
+        }
+        // (and one at the start of the line after it, the same way)
+        const after = br.nextSibling
+        if (after && after.nodeType === 3 && after.data.startsWith(' ')) {
+          after.data = '\u00a0' + after.data.slice(1)
+          changed = true
+        }
+      }
+      // (Trix is not to take this for something typed)
+      if (changed && observer && observer.takeRecords) observer.takeRecords()
     } catch (e) {}
   }
 

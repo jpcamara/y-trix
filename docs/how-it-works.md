@@ -203,14 +203,24 @@ dependency is Trix 2.1.15 or later, and the binding warns on anything older.
   step before it, where Trix alone spends an undo on showing the same
   document. (`tests/alone.spec.js` with undo and redo added to its buttons
   shows both; one such difference looked at closely was the second.)
-- With `ALONE_NOISE=1`, `tests/alone.spec.js` has someone else type a
-  character and take it away again between the user's keys. In Chromium
-  about one run in ten then has a key on the other side of a space that
-  was typed just before it, where Trix alone has it after the space
-  (`ALONE_NOISE=1 ALONE_SEEDS=20,21,22 ALONE_STEPS=120`). Firefox and WebKit
-  have none in 40 runs. Not explained yet: a space and a key at the end of
-  a block, in the middle of a line, before a line break and at the end of
-  the document all come out right when tried one at a time.
+- A space next to a line break made with Shift+Enter is a non-breaking
+  space in the page while it is typed (the browser makes it one so that it
+  shows). When Trix draws the block again it can draw a plain space there,
+  which does not show, and Chromium types the next key on the wrong side
+  of it. After a remote change is drawn the binding makes such a space
+  non-breaking in the page again (`keepSpacesBeforeBreaks`); the document
+  is the same either way. Trix alone does this to itself now and then: at
+  the end of a block, the End key and a letter can put the letter before a
+  space that was typed there. With `ALONE_NOISE=1`, `tests/alone.spec.js`
+  has someone else type a character and take it away again between the
+  user's keys, and about one Chromium run in fifteen ends differently from
+  Trix alone, most of them this way round: the binding has the letter
+  after the space, Trix alone before it. One (`ALONE_SEEDS=5`) has Bold
+  switched on after a pasted picture with the binding and not without,
+  which is not explained yet. Firefox and WebKit had none in 40 runs.
+- A picture that does not load (a dead link) makes Trix draw the whole
+  document again on every key typed in its block, with or without the
+  binding: the `<img>` it would draw is not the one it kept in the page.
 - Yjs undo has two open bugs with nested types, yjs/yjs#823 (peers can
   diverge after undo) and yjs/yjs#809 (undo can throw). A single flat
   `Y.Text` does not seem to reach them: `node notes/yjs-undo-text.mjs` fuzzes

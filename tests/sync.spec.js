@@ -788,3 +788,22 @@ test('trix: a block break selected with Shift and the right arrow is still selec
   await converge(page)
   expect(await text(page, 1)).toBe('Hello world. Edit me in either editor.bSecond paragraph.\n')
 })
+
+test('trix: a key typed after a space at a line break goes after the space when someone else\'s change drew the block again', async ({ page }) => {
+  // (Trix draws that space plain, where the browser had a non-breaking one, and Chromium then types before it)
+  await open(page)
+  await caret(page, 0, 3)
+  await page.keyboard.press('Shift+Enter')
+  await page.keyboard.press('ArrowLeft')
+  const elsewhere = async () => {
+    for (const phase of [0, 1]) {
+      await page.evaluate((phase) => { const p = window.ytDemo.peers[1]; const t = p.doc.getText('trix'); p.doc.transact(() => t.format(30, 2, { italic: phase === 0 ? true : null }), 'elsewhere') }, phase)
+      await page.waitForTimeout(80)
+    }
+  }
+  await page.keyboard.type('b ', { delay: 40 })
+  await elsewhere()
+  await page.keyboard.type('c', { delay: 40 })
+  await converge(page)
+  expect((await text(page, 1)).slice(0, 10)).toBe('Helb c\nlo ')
+})
