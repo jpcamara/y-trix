@@ -165,7 +165,7 @@ const twin = async (page, options, { early = false } = {}) => page.evaluate(asyn
   const element = wrap.querySelector('trix-editor')
   const initialized = new Promise((resolve) => element.addEventListener('trix-initialize', resolve, { once: true }))
   const opts = { debug, ...options }
-  if (options.undoManager) opts.undoManager = window.sharedUndo = new Y.UndoManager(p.doc.getText('trix'), { trackedOrigins: new Set(['mine']) })
+  if (options.undoManager) opts.undoManager = window.sharedUndo = new Y.UndoManager(p.doc.getText('trix'), { trackedOrigins: new Set(['mine']), captureTimeout: 5000 /* (a slow machine can take more than Yjs's half second over six letters, and they would be two steps) */ })
   let binding
   // early: bound before the element is in the page, so before Trix has set it up
   if (early) binding = new window.ytDemo.TrixBinding(p.doc.getText('trix'), element, p.awareness, opts)
