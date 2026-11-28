@@ -451,9 +451,14 @@ export class TrixBinding {
       this.updateActions()
     }
     this.onStackPopped = (e) => {
-      const sel = e.stackItem.meta.get('selection')
-      if (sel && this.isFocused()) this.restoreSelection(sel)
-      this.updateActions()
+      // (Nothing thrown here may reach Yjs: it calls this before it has
+      // noted that the step is done with, and after an error every later
+      // undo did nothing at all. See runUndo.)
+      try {
+        const sel = e.stackItem.meta.get('selection')
+        if (sel && this.isFocused()) this.restoreSelection(sel)
+        this.updateActions()
+      } catch (err) { console.error('y-trix: the selection of an undo step could not be put back', err) }
     }
     this.undoManager.on('stack-item-added', this.onStackAdded)
     this.undoManager.on('stack-item-popped', this.onStackPopped)
@@ -523,26 +528,26 @@ export class TrixBinding {
       // and the right arrow at the end of a line), Chromium's Trix says the
       // selection is a caret, though the page has the block break selected
       // and the next key replaces it. Put back as a caret after a remote
-      // change, the key no longer joined the two blocks. The same with more
-      // selected than the break (Shift and End after Shift and the up
-      // arrow): Trix's range is one short, and the key then left the
-      // block after the break standing.
-      if (range && manager && !manager.lockedLocationRange) {
+      // change, the key no longer joined the two blocks.
+      // (Only then. With more selected than the break, Trix's range can be
+      // one short in the same way, but reading every selection that ends
+      // at the start of a block as one longer made a selection drawn
+      // backwards from the end of a line one longer than it was.)
+      if (range && range[0] === range[1] && manager && !manager.lockedLocationRange) {
         const page = this.element.ownerDocument.defaultView.getSelection()
         if (page && page.rangeCount > 0 && !page.isCollapsed && this.element.contains(page.anchorNode) && this.element.contains(page.focusNode)) {
           // (the end of the selection is at the very start of the next
           // block's element, before the comment Trix marks a block with,
           // and Trix reads that as the end of the block before)
-          let moved = false
           const at = (node, offset) => {
-            if (node.nodeType === 1 && offset === 0 && node.firstChild && node.firstChild.nodeType === 8 && node.firstChild.data === 'block') { offset = 1; moved = true }
+            if (node.nodeType === 1 && offset === 0 && node.firstChild && node.firstChild.nodeType === 8 && node.firstChild.data === 'block') offset = 1
             return manager.locationMapper.findLocationFromContainerAndOffset(node, offset)
           }
           const a = at(page.anchorNode, page.anchorOffset)
           const b = at(page.focusNode, page.focusOffset)
           if (a && b) {
             const ends = [this.composition.document.positionFromLocation(a), this.composition.document.positionFromLocation(b)].sort((x, y) => x - y)
-            if (moved && ends[0] !== ends[1] && ends.every((n) => typeof n === 'number' && !isNaN(n)) && (ends[0] !== range[0] || ends[1] !== range[1])) return ends
+            if (ends[0] !== ends[1] && ends.every((n) => typeof n === 'number' && !isNaN(n))) return ends
           }
         }
       }
@@ -1582,6 +1587,12 @@ export class TrixBinding {
       // show exactly that.
       console.error('y-trix: undo failed', e)
       this.renderAll()
+    } finally {
+      // Yjs notes the step it is undoing and forgets it when it is done. If
+      // something threw on the way, the note stays, and Yjs takes every
+      // later undo and redo for one that is already under way: the buttons
+      // are lit and do nothing. So forget it here.
+      if (this.undoManager.currStackItem != null) this.undoManager.currStackItem = null
     }
     this.updateActions()
   }

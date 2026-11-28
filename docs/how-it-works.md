@@ -234,7 +234,13 @@ dependency is Trix 2.1.15 or later, and the binding warns on anything older.
   (`ALONE_SEEDS=41` to `80`), in a space next to a key as above, or where
   a block break was selected with Shift and the arrow: Trix alone pastes
   beside the break it takes for a caret, and with the binding the paste
-  replaces it.
+  replaces it. One more is open (`ALONE_MORE=1 ALONE_NOISE=1
+  ALONE_SEEDS=45`): after Shift and the up arrow and then Shift and End,
+  the page has a block break selected that Trix's range leaves out, and a
+  key typed after a remote change leaves the block after the break
+  standing. Reading every such selection as one longer was tried and taken
+  out again: it made a selection drawn backwards from the end of a line
+  one longer than it was (`UI_SEEDS=9977` in `tests/ui.spec.js`).
 - A picture that does not load (a dead link) makes Trix draw the whole
   document again on every key typed in its block, with or without the
   binding: the `<img>` it would draw is not the one it kept in the page.

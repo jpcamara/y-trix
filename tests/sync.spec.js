@@ -827,19 +827,21 @@ test('trix: the caret left in the editor is still there when the user comes back
   expect((await text(page, 1)).slice(0, 14)).toBe('HelZlo worlXd.')
 })
 
-test('trix: a selection that ends at the very start of the next block still takes the block break with it after someone else\'s change', async ({ page, browserName }) => {
-  test.skip(browserName !== 'chromium', 'only Chromium leaves the end of a selection there')
-  test.skip(!!test.info().project.metadata?.trix, 'Trix 2.1.15 keeps the break when a key is typed over a selection it knows of')
+test('trix: undo still works after something threw while Yjs was finishing a step', async ({ page }) => {
+  // (Yjs keeps a note of the step it is undoing, and with the note left standing every later undo does nothing)
   await open(page)
-  await caret(page, 0, 5)
-  // (as Shift and End leave it after Shift and the up arrow: the end before the comment Trix marks a block with)
-  await page.evaluate(() => { const el = window.ytDemo.peers[0].element; const first = el.firstElementChild; const walker = document.createTreeWalker(first, NodeFilter.SHOW_TEXT); const t = walker.nextNode(); window.getSelection().setBaseAndExtent(el.children[1], 0, t, 5) })
-  await page.waitForTimeout(100)
-  for (const phase of [0, 1]) {
-    await page.evaluate((phase) => { const p = window.ytDemo.peers[1]; const t = p.doc.getText('trix'); p.doc.transact(() => { if (phase === 0) t.insert(2, 'Q', {}); else t.delete(2, 1) }, 'elsewhere') }, phase)
-    await page.waitForTimeout(80)
-  }
-  await page.keyboard.type('X')
-  await converge(page)
-  expect(await text(page, 1)).toBe('HelloXSecond paragraph.\n')
+  await caret(page, 0, 'end')
+  await page.keyboard.type(' one')
+  await page.waitForTimeout(700)
+  await page.keyboard.type(' two')
+  await page.waitForTimeout(700)
+  await page.evaluate(() => {
+    const { binding, editor } = window.ytDemo.peers[0]
+    const once = () => { binding.undoManager.off('stack-item-popped', once); throw new Error('a listener of the app that throws') }
+    binding.undoManager.on('stack-item-popped', once)
+    try { editor.undo() } catch (e) {}
+  })
+  expect(await converge(page)).not.toContain(' two')
+  await page.evaluate(() => window.ytDemo.peers[0].editor.undo())
+  expect(await converge(page)).not.toContain(' one')
 })
